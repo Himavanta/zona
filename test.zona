@@ -25,24 +25,20 @@ _ nested words
 3 quad .
 
 _ conditional: ? single branch
-@ abs :dup 0 < ? neg ;
 @ neg 0 :swap - ;
+@ abs :dup 0 < ? neg ;
 -7 abs .
 5 abs .
 
 _ conditional: ? ! double branch
-@ sign :dup 0 > ? pos ! negz ;
-@ pos :drop 1 ;
-@ negz :dup 0 < ? neg0 ! zero ;
-@ neg0 :drop -1 ;
-@ zero :drop 0 ;
-5 sign .
--3 sign .
-0 sign .
+@ test1 1 ? 10 ! 20 ;
+@ test0 0 ? 10 ! 20 ;
+test1 .
+test0 .
 
 _ loop with ~ and $
 @ countdown :dup 0 = ? $ :dup . 1 - ~ ;
-5 countdown
+5 countdown :drop
 
 _ memory
 0 :here #
