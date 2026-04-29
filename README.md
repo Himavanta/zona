@@ -40,10 +40,22 @@ hello
 ./demo
 ```
 
-编译流程：zona 源码 → QBE IR → 汇编 → 原生可执行文件。编译产物可直接链接 C 库：
+带命令行参数：
 
 ```
-cc output.s -o prog -lraylib -lm
+./zonac tests/test_args.zona -o targs
+./targs foo bar
+```
+
+编译流程：zona 源码 → QBE IR → 汇编 → 原生可执行文件。
+
+#### FFI：链接 C 库
+
+编译产物是原生代码，可直接链接任意 C 库。编译时保留中间文件手动链接：
+
+```
+./zonac game.zona -o game
+cc game.s -o game -lraylib -lm
 ```
 
 ## 快速入门

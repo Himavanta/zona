@@ -925,9 +925,8 @@ int main(int argc, char **argv) {
     snprintf(cmd, sizeof(cmd), "cc %s -o %s -lm", s_path, output);
     if (system(cmd) != 0) { fprintf(stderr, "cc failed\n"); return 1; }
 
-    /* cleanup */
+    /* cleanup intermediate QBE IR, keep .s for FFI linking */
     remove(ssa_path);
-    remove(s_path);
 
     return 0;
 }
