@@ -155,4 +155,79 @@ static char *read_file(const char *path) {
     return src;
 }
 
+/* ============================================================
+   Validation helpers for :use / :bind
+   ============================================================ */
+
+static int is_type_str(const char *s) {
+    for (; *s; s++)
+        if (!strchr("idfslpv", *s)) return 0;
+    return 1;
+}
+
+/* count tokens on the same line as toks[start], starting from start */
+static int line_token_count(Token *toks, int n, int start) {
+    int line = toks[start].line, count = 0;
+    for (int j = start; j < n && toks[j].line == line; j++) count++;
+    return count;
+}
+
+/* validate :use line: :use 'path' (2 tokens on line) */
+static int validate_use(Token *toks, int n, int i) {
+    int cnt = line_token_count(toks, n, i);
+    if (cnt < 2 || toks[i+1].type != T_STR) {
+        fprintf(stderr, "line %d: :use must be followed by a string path\n", toks[i].line);
+        return 0;
+    }
+    if (cnt > 2) {
+        fprintf(stderr, "line %d: :use line must contain only :use and path\n", toks[i].line);
+        return 0;
+    }
+    return 1;
+}
+
+/* validate :bind line: :bind name 'cname' ret [params] (4 or 5 tokens) */
+static int validate_bind(Token *toks, int n, int i) {
+    int cnt = line_token_count(toks, n, i);
+    if (cnt < 4) {
+        fprintf(stderr, "line %d: :bind requires: name 'cname' retType [paramTypes]\n", toks[i].line);
+        return 0;
+    }
+    if (toks[i+1].type != T_WORD) {
+        fprintf(stderr, "line %d: :bind name must be a word\n", toks[i].line);
+        return 0;
+    }
+    if (toks[i+2].type != T_STR) {
+        fprintf(stderr, "line %d: :bind C name must be a string\n", toks[i].line);
+        return 0;
+    }
+    if (toks[i+3].type != T_WORD || strlen(toks[i+3].text) != 1 || !is_type_str(toks[i+3].text)) {
+        fprintf(stderr, "line %d: :bind return type must be a single type char (idfslpv)\n", toks[i].line);
+        return 0;
+    }
+    if (cnt >= 5) {
+        if (toks[i+4].type != T_WORD || !is_type_str(toks[i+4].text)) {
+            fprintf(stderr, "line %d: :bind param types must only contain type chars (idfslpv)\n", toks[i].line);
+            return 0;
+        }
+    }
+    if (cnt > 5) {
+        fprintf(stderr, "line %d: :bind has too many tokens\n", toks[i].line);
+        return 0;
+    }
+    return 1;
+}
+
+/* check that :use/:bind don't appear inside a word body */
+static void check_body_no_directives(Token *body, int len, const char *word_name) {
+    for (int j = 0; j < len; j++) {
+        if (body[j].type == T_PRIM &&
+            (strcmp(body[j].text, ":use") == 0 || strcmp(body[j].text, ":bind") == 0)) {
+            fprintf(stderr, "line %d: %s cannot appear inside word '%s'\n",
+                    body[j].line, body[j].text, word_name);
+            exit(1);
+        }
+    }
+}
+
 #endif

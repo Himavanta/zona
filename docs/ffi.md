@@ -27,11 +27,15 @@ cc game.s -o game -lraylib -lm
 ### 示例
 
 ```
-:bind closeWindow 'CloseWindow' v
-:bind getWidth 'GetScreenWidth' i
-:bind drawCircle 'DrawCircle' v iifd
-:bind puts 'puts' i s
-:bind createWindow 'create_window' v ddsfp
+:bind closeWindow 'CloseWindow' v               _ 无参无返回
+:bind getWidth 'GetScreenWidth' i               _ 无参有返回
+:bind drawCircle 'DrawCircle' v iifd            _ 有参无返回
+:bind puts 'puts' i s                           _ 字符串参数
+:bind createWindow 'create_window' v iis        _ 别名绑定
+
+800 600 'hello' createWindow
+getWidth .
+closeWindow
 ```
 
 ### 类型字符
@@ -46,11 +50,38 @@ cc game.s -o game -lraylib -lm
 | `p` | 指针 (void* 等) | `l` | double | 待定，语义同 `l` 但更明确 |
 | `v` | void | 无 | 不压栈 | 仅用于返回类型 |
 
-### 解析规则
+### 行格式规则
 
-- 返回类型一定是单字符词元，必须存在
-- 参数类型是可选的第二个词元，无参数时不写
-- `:bind` 只在编译器中有效，解释器忽略
+`:bind` 和 `:use` 遵守相同的行格式规则：
+
+- 必须是行首第一个词元（`_` 注释行除外）
+- 独占一行，同一行的所有词元都属于该声明
+- 不能出现在 `@ ... ;` 字定义体内部
+- 行尾可用 `_` 注释
+
+### 编译期校验
+
+第一遍扫描时对 `:bind` 行做完整校验，不合法直接报错带行号：
+
+**`:use` 行校验：**
+- 第二个词元必须是字符串（T_STR）
+- 不能有第三个词元
+
+**`:bind` 行校验：**
+- 第二个词元必须是用户字（T_WORD）
+- 第三个词元必须是字符串（T_STR）
+- 第四个词元必须是用户字（T_WORD），且只含合法类型字符 `idfslpv`，且长度为 1（返回类型）
+- 第五个词元可选，如果有必须是用户字（T_WORD），且只含合法类型字符 `idfslpv`
+- 不能有更多词元
+
+**`@ ... ;` 内部检查：**
+- 字定义体收集完成后，扫描 body 中是否有 `:use` 或 `:bind`，有则报错
+
+### 重定义
+
+- 同名 `:bind` 后定义遮盖先定义，与字的重定义规则一致
+- `:bind` 的 zona 名可以和已有字同名，后定义遮盖先定义
+- C 函数名不存在时，编译能过，链接时由 `cc` 报 undefined symbol
 
 ### 编译器行为
 
@@ -60,6 +91,10 @@ cc game.s -o game -lraylib -lm
 2. 按类型生成 QBE 转换指令
 3. 生成 `call $cName(类型 参数, ...)`
 4. 如果返回类型非 `v`，将返回值转为 double 压栈
+
+### 解释器行为
+
+解释器遇到 `:bind` 时忽略（跳过该行所有词元）。
 
 ## 待定问题
 

@@ -354,10 +354,8 @@ static void exec_line(Token *toks, int n) {
     int i = 0;
     while (i < n) {
         if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0) {
+            if (!validate_use(toks, n, i)) return;
             i++;
-            if (i >= n || toks[i].type != T_STR) {
-                fprintf(stderr, ":use must be followed by a string path\n"); return;
-            }
             const char *rel = toks[i].text;
             if (!(rel[0] == '.' && (rel[1] == '/' || (rel[1] == '.' && rel[2] == '/')))) {
                 fprintf(stderr, ":use path must start with ./ or ../\n"); return;
@@ -370,6 +368,12 @@ static void exec_line(Token *toks, int n) {
                 run_file_with_dir(resolved);
             }
             i++; continue;
+        }
+        if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":bind") == 0) {
+            /* interpreter ignores :bind, skip all tokens on this line */
+            int line = toks[i].line;
+            while (i < n && toks[i].line == line) i++;
+            continue;
         }
         if (toks[i].type == T_SYM && toks[i].text[0] == '@') {
             i++;
@@ -385,6 +389,7 @@ static void exec_line(Token *toks, int n) {
                 if (w->len >= WORD_BODY_MAX) { fprintf(stderr, "word body too long\n"); return; }
                 w->body[w->len++] = toks[i++];
             }
+            check_body_no_directives(w->body, w->len, w->name);
             dict_count++; continue;
         }
         int start = i;

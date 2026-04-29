@@ -60,6 +60,25 @@ static int add_str(const char *text) {
 }
 
 /* ============================================================
+   Extern table (for :bind FFI)
+   ============================================================ */
+
+#define EXTERN_MAX 256
+static struct {
+    char zona_name[256];
+    char c_name[256];
+    char ret_type;
+    char param_types[64];
+} externs[EXTERN_MAX];
+static int extern_count = 0;
+
+static int find_extern(const char *name) {
+    for (int i = extern_count - 1; i >= 0; i--)
+        if (strcmp(externs[i].zona_name, name) == 0) return i;
+    return -1;
+}
+
+/* ============================================================
    Emit helpers
    ============================================================ */
 
@@ -486,6 +505,33 @@ static void emit_runtime(void) {
     fprintf(out, "    call $zona_store_str(l %%str, w %%len)\n");
     fprintf(out, "    ret\n}\n\n");
 
+    /* to_cstr: pop addr+len from zona stack, return C string pointer (caller must free) */
+    fprintf(out, "function l $zona_to_cstr() {\n@start\n");
+    fprintf(out, "    %%len =d call $zona_pop()\n");
+    fprintf(out, "    %%addr =d call $zona_pop()\n");
+    fprintf(out, "    %%li =w dtosi %%len\n");
+    fprintf(out, "    %%ai =w dtosi %%addr\n");
+    fprintf(out, "    %%bl =l extsw %%li\n");
+    fprintf(out, "    %%bl2 =l add %%bl, 1\n");
+    fprintf(out, "    %%buf =l call $calloc(l %%bl2, l 1)\n");
+    fprintf(out, "    %%i =w copy 0\n");
+    fprintf(out, "    jmp @ccond\n");
+    fprintf(out, "@ccond\n");
+    fprintf(out, "    %%ok =w csltw %%i, %%li\n");
+    fprintf(out, "    jnz %%ok, @cbody, @cdone\n");
+    fprintf(out, "@cbody\n");
+    fprintf(out, "    %%idx =w add %%ai, %%i\n");
+    fprintf(out, "    %%ptr =l call $zona_mem_at(w %%idx)\n");
+    fprintf(out, "    %%cv =d loadd %%ptr\n");
+    fprintf(out, "    %%ch =w dtosi %%cv\n");
+    fprintf(out, "    %%il =l extsw %%i\n");
+    fprintf(out, "    %%dst =l add %%buf, %%il\n");
+    fprintf(out, "    storeb %%ch, %%dst\n");
+    fprintf(out, "    %%i =w add %%i, 1\n");
+    fprintf(out, "    jmp @ccond\n");
+    fprintf(out, "@cdone\n");
+    fprintf(out, "    ret %%buf\n}\n\n");
+
     /* stack debug: print <sp> val val ... */
     fprintf(out, "function $zona_stack() {\n@start\n");
     fprintf(out, "    %%si =w loadw $sp\n");
@@ -732,7 +778,96 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
         if (w) {
             fprintf(out, "    call $zona_%s()\n", t->text);
         } else {
-            fprintf(stderr, "compile: unknown word: %s\n", t->text);
+            int ei = find_extern(t->text);
+            if (ei >= 0) {
+                /* FFI call */
+                const char *params = externs[ei].param_types;
+                int plen = (int)strlen(params);
+                /* allocate temps for each param (reverse order pop) */
+                int ptmps[64], stmps[64];
+                for (int j = plen - 1; j >= 0; j--) {
+                    if (params[j] == 's') {
+                        /* string: pop addr+len, convert to C string */
+                        stmps[j] = newtmp();
+                        fprintf(out, "    %%t%d =l call $zona_to_cstr()\n", stmps[j]);
+                        ptmps[j] = stmps[j];
+                    } else {
+                        ptmps[j] = newtmp();
+                        fprintf(out, "    %%t%d =d call $zona_pop()\n", ptmps[j]);
+                        stmps[j] = -1;
+                    }
+                }
+                /* convert types and build call */
+                int ctmps[64]; /* converted temps */
+                for (int j = 0; j < plen; j++) {
+                    switch (params[j]) {
+                    case 'i':
+                        ctmps[j] = newtmp();
+                        fprintf(out, "    %%t%d =w dtosi %%t%d\n", ctmps[j], ptmps[j]);
+                        break;
+                    case 'l': case 'p':
+                        ctmps[j] = newtmp();
+                        { int ti = newtmp();
+                        fprintf(out, "    %%t%d =l dtosi %%t%d\n", ti, ptmps[j]);
+                        ctmps[j] = ti; }
+                        break;
+                    case 'f':
+                        ctmps[j] = newtmp();
+                        fprintf(out, "    %%t%d =s truncd %%t%d\n", ctmps[j], ptmps[j]);
+                        break;
+                    case 'd':
+                        ctmps[j] = ptmps[j]; /* already double */
+                        break;
+                    case 's':
+                        ctmps[j] = ptmps[j]; /* already l from zona_to_cstr */
+                        break;
+                    }
+                }
+                /* emit call */
+                char rt = externs[ei].ret_type;
+                int rettmp = -1;
+                if (rt != 'v') {
+                    rettmp = newtmp();
+                    const char *qrt = (rt == 'd') ? "d" : (rt == 'f') ? "s" : (rt == 'l' || rt == 'p') ? "l" : "w";
+                    fprintf(out, "    %%t%d =%s call $%s(", rettmp, qrt, externs[ei].c_name);
+                } else {
+                    fprintf(out, "    call $%s(", externs[ei].c_name);
+                }
+                for (int j = 0; j < plen; j++) {
+                    if (j > 0) fprintf(out, ", ");
+                    const char *qt;
+                    switch (params[j]) {
+                    case 'i': qt = "w"; break;
+                    case 'l': case 'p': case 's': qt = "l"; break;
+                    case 'f': qt = "s"; break;
+                    case 'd': qt = "d"; break;
+                    default: qt = "w"; break;
+                    }
+                    fprintf(out, "%s %%t%d", qt, ctmps[j]);
+                }
+                fprintf(out, ")\n");
+                /* free string temps */
+                for (int j = 0; j < plen; j++)
+                    if (stmps[j] >= 0)
+                        fprintf(out, "    call $free(l %%t%d)\n", stmps[j]);
+                /* push return value */
+                if (rt != 'v') {
+                    int rd = newtmp();
+                    if (rt == 'd') {
+                        fprintf(out, "    call $zona_push(d %%t%d)\n", rettmp);
+                    } else if (rt == 'f') {
+                        fprintf(out, "    %%t%d =d exts %%t%d\n", rd, rettmp);
+                        fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
+                    } else {
+                        /* i, l, p -> double */
+                        const char *cvt = (rt == 'i') ? "swtof" : "sltof";
+                        fprintf(out, "    %%t%d =d %s %%t%d\n", rd, cvt, rettmp);
+                        fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
+                    }
+                }
+            } else {
+                fprintf(stderr, "compile: unknown word: %s\n", t->text);
+            }
         }
         break;
     }
@@ -794,10 +929,8 @@ static void collect_toplevel(Token *toks, int n) {
     int i = 0;
     while (i < n) {
         if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0) {
+            if (!validate_use(toks, n, i)) return;
             i++;
-            if (i >= n || toks[i].type != T_STR) {
-                fprintf(stderr, ":use must be followed by a string\n"); return;
-            }
             char resolved[512];
             resolve_path(current_dir, toks[i].text, resolved, sizeof(resolved));
             if (!already_used(resolved)) {
@@ -806,6 +939,20 @@ static void collect_toplevel(Token *toks, int n) {
                 compile_file(resolved);
             }
             i++; continue;
+        }
+        if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":bind") == 0) {
+            if (!validate_bind(toks, n, i)) return;
+            if (extern_count >= EXTERN_MAX) { fprintf(stderr, "too many :bind\n"); return; }
+            int ei = extern_count++;
+            strncpy(externs[ei].zona_name, toks[i+1].text, 255);
+            strncpy(externs[ei].c_name, toks[i+2].text, 255);
+            externs[ei].ret_type = toks[i+3].text[0];
+            int cnt = line_token_count(toks, n, i);
+            if (cnt >= 5)
+                strncpy(externs[ei].param_types, toks[i+4].text, 63);
+            else
+                externs[ei].param_types[0] = '\0';
+            i += cnt; continue;
         }
         if (toks[i].type == T_SYM && toks[i].text[0] == '@') {
             i++;
@@ -821,12 +968,15 @@ static void collect_toplevel(Token *toks, int n) {
                 if (w->len >= WORD_BODY_MAX) { fprintf(stderr, "word body too long\n"); return; }
                 w->body[w->len++] = toks[i++];
             }
+            check_body_no_directives(w->body, w->len, w->name);
             dict_count++;
             continue;
         }
-        /* loose code: collect until next @ */
+        /* loose code: collect until next @ or :bind/:use */
         int start = i;
-        while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@'))
+        while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@')
+                      && !(toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0)
+                      && !(toks[i].type == T_PRIM && strcmp(toks[i].text, ":bind") == 0))
             i++;
         if (i > start && main_seg_count < 256) {
             Segment *s = &main_segs[main_seg_count++];
