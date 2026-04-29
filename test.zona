@@ -1,0 +1,59 @@
+_ === Zona test ===
+
+_ basic arithmetic
+3 5 + .
+10 3 - .
+4 5 * .
+2 10 ^ .
+
+_ comparison
+3 5 > .
+5 3 > .
+5 5 = .
+
+_ stack ops
+1 2 :swap . .
+3 :dup + .
+1 2 3 :rot . . .
+
+_ word definition and call
+@ double :dup + ;
+5 double .
+
+_ nested words
+@ quad double double ;
+3 quad .
+
+_ conditional: ? single branch
+@ abs :dup 0 < ? neg ;
+@ neg 0 :swap - ;
+-7 abs .
+5 abs .
+
+_ conditional: ? ! double branch
+@ sign :dup 0 > ? pos ! negz ;
+@ pos :drop 1 ;
+@ negz :dup 0 < ? neg0 ! zero ;
+@ neg0 :drop -1 ;
+@ zero :drop 0 ;
+5 sign .
+-3 sign .
+0 sign .
+
+_ loop with ~ and $
+@ countdown :dup 0 = ? $ :dup . 1 - ~ ;
+5 countdown
+
+_ memory
+0 :here #
+:here & .
+42 :here #
+:here & .
+
+_ allot
+:here .
+3 :allot
+:here .
+
+_ string
+'hello zona' .
