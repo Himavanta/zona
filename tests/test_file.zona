@@ -1,0 +1,16 @@
+_ 文件读写测试
+
+_ 写文件
+'./tests/tmp.txt' 'w' :fopen
+72 :over :fwrite
+105 :over :fwrite
+10 :over :fwrite
+:fclose
+
+_ 读文件
+'./tests/tmp.txt' 'r' :fopen
+:dup :fread .
+:dup :fread .
+:dup :fread .
+:dup :fread .
+:fclose

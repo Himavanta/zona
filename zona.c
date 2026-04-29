@@ -146,7 +146,16 @@ static int here = 0;
 #define HEAP_MAX 1024
 static struct { double *ptr; int size; int addr; } heap[HEAP_MAX];
 static int heap_count = 0;
-static int heap_next = MEM_CELLS; /* heap addresses start after static memory */
+static int heap_next = MEM_CELLS;
+
+/* ---- Program arguments ---- */
+static int prog_argc = 0;
+static char **prog_argv = NULL;
+
+/* ---- File handles ---- */
+#define FHANDLE_MAX 16
+static FILE *fhandles[FHANDLE_MAX];
+static int fhandle_count = 0; /* heap addresses start after static memory */
 
 /* Store a string into memory, push addr and length */
 static void store_str(const char *s) {
@@ -202,6 +211,45 @@ static void exec_prim(const char *name) {
     else if (strcmp(name, ":rand") == 0) { push((double)(rand() % (int)pop())); }
     else if (strcmp(name, ":key") == 0) { push((double)getchar()); }
     else if (strcmp(name, ":exit") == 0) { exit((int)pop()); }
+    else if (strcmp(name, ":argc") == 0) { push(prog_argc); }
+    else if (strcmp(name, ":argv") == 0) {
+        int idx = (int)pop();
+        if (idx >= 0 && idx < prog_argc) store_str(prog_argv[idx]);
+        else { fprintf(stderr, "line %d: argv index out of range: %d\n", cur_line, idx); push(0); push(0); }
+    }
+    else if (strcmp(name, ":fopen") == 0) {
+        /* mode_addr mode_len path_addr path_len -- handle */
+        int mlen = (int)pop(), maddr = (int)pop();
+        int plen = (int)pop(), paddr = (int)pop();
+        char path[512] = {0}, mode[16] = {0};
+        for (int i = 0; i < plen && i < 511; i++) path[i] = (char)(int)mem[paddr + i];
+        for (int i = 0; i < mlen && i < 15; i++) mode[i] = (char)(int)mem[maddr + i];
+        if (fhandle_count >= FHANDLE_MAX) { fprintf(stderr, "line %d: too many open files\n", cur_line); push(-1); return; }
+        FILE *fp = fopen(path, mode);
+        if (!fp) { fprintf(stderr, "line %d: cannot open: %s\n", cur_line, path); push(-1); return; }
+        fhandles[fhandle_count] = fp;
+        push(fhandle_count++);
+    }
+    else if (strcmp(name, ":fclose") == 0) {
+        int h = (int)pop();
+        if (h >= 0 && h < fhandle_count && fhandles[h]) { fclose(fhandles[h]); fhandles[h] = NULL; }
+        else fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h);
+    }
+    else if (strcmp(name, ":fread") == 0) {
+        /* handle -- char (or -1 on EOF) */
+        int h = (int)pop();
+        if (h >= 0 && h < fhandle_count && fhandles[h]) {
+            int c = fgetc(fhandles[h]);
+            push(c == EOF ? -1 : c);
+        } else { fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h); push(-1); }
+    }
+    else if (strcmp(name, ":fwrite") == 0) {
+        /* char handle -- */
+        int h = (int)pop();
+        int c = (int)pop();
+        if (h >= 0 && h < fhandle_count && fhandles[h]) fputc(c, fhandles[h]);
+        else fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h);
+    }
     else if (strcmp(name, ":alloc") == 0) {
         int n = (int)pop();
         if (heap_count >= HEAP_MAX) { fprintf(stderr, "line %d: heap full\n", cur_line); push(0); return; }
@@ -500,7 +548,13 @@ static void repl(void) {
 }
 
 int main(int argc, char **argv) {
-    if (argc > 1) run_file(argv[1]);
-    else repl();
+    srand((unsigned)time(NULL));
+    if (argc > 1) {
+        prog_argc = argc - 2;
+        prog_argv = argv + 2;
+        run_file(argv[1]);
+    } else {
+        repl();
+    }
     return 0;
 }
