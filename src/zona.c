@@ -1,131 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <math.h>
-#include <unistd.h>
-#include <time.h>
+#include "zona.h"
 #include <readline/readline.h>
 #include <readline/history.h>
-
-/* ============================================================
-   Token
-   ============================================================ */
-
-enum TokenType { T_NUM, T_STR, T_SYM, T_PRIM, T_WORD };
-
-typedef struct {
-    enum TokenType type;
-    char text[256];
-    double num;
-    int line;
-} Token;
-
-/* ============================================================
-   Tokenizer
-   ============================================================ */
-
-static const char *SYMS = "@;$?!~&#+-*/%^><=._'";
-
-static int tokenize(const char *line, Token *toks, int max, int line_num) {
-    int n = 0;
-    const char *p = line;
-    while (*p && n < max) {
-        while (*p == ' ' || *p == '\t') p++;
-        if (!*p || *p == '\n') break;
-        if (*p == '_') break;
-        toks[n].line = line_num;
-
-        /* string */
-        if (*p == '\'') {
-            p++;
-            int len = 0;
-            while (*p && *p != '\'' && *p != '\n') {
-                if (*p == '\\' && *(p+1)) {
-                    p++;
-                    switch (*p) {
-                        case 'n': toks[n].text[len++] = '\n'; break;
-                        case 't': toks[n].text[len++] = '\t'; break;
-                        case '\\': toks[n].text[len++] = '\\'; break;
-                        case '\'': toks[n].text[len++] = '\''; break;
-                        default: toks[n].text[len++] = *p; break;
-                    }
-                } else {
-                    toks[n].text[len++] = *p;
-                }
-                p++;
-            }
-            if (*p == '\'') p++;
-            toks[n].text[len] = '\0';
-            toks[n].type = T_STR;
-            n++; continue;
-        }
-        /* negative number */
-        if (*p == '-' && isdigit((unsigned char)*(p+1))) {
-            const char *s = p; p++;
-            while (isdigit((unsigned char)*p) || *p == '.') p++;
-            int len = (int)(p - s);
-            memcpy(toks[n].text, s, len); toks[n].text[len] = '\0';
-            toks[n].type = T_NUM; toks[n].num = atof(toks[n].text);
-            n++; continue;
-        }
-        /* number */
-        if (isdigit((unsigned char)*p)) {
-            const char *s = p;
-            while (isdigit((unsigned char)*p) || *p == '.') p++;
-            int len = (int)(p - s);
-            memcpy(toks[n].text, s, len); toks[n].text[len] = '\0';
-            toks[n].type = T_NUM; toks[n].num = atof(toks[n].text);
-            n++; continue;
-        }
-        /* single symbol */
-        if (strchr(SYMS, *p) && *p != '\'' && *p != '_') {
-            toks[n].text[0] = *p; toks[n].text[1] = '\0';
-            toks[n].type = T_SYM; p++;
-            n++; continue;
-        }
-        /* system primitive :xxx */
-        if (*p == ':' && isalpha((unsigned char)*(p+1))) {
-            const char *s = p; p++;
-            while (isalpha((unsigned char)*p)) p++;
-            int len = (int)(p - s);
-            memcpy(toks[n].text, s, len); toks[n].text[len] = '\0';
-            toks[n].type = T_PRIM;
-            n++; continue;
-        }
-        /* user word */
-        if (isalpha((unsigned char)*p)) {
-            const char *s = p;
-            while (isalpha((unsigned char)*p) || isdigit((unsigned char)*p)) p++;
-            int len = (int)(p - s);
-            memcpy(toks[n].text, s, len); toks[n].text[len] = '\0';
-            toks[n].type = T_WORD;
-            n++; continue;
-        }
-        p++;
-    }
-    return n;
-}
-
-#define TOK_MAX 4096
-
-static int tokenize_all(const char *src, Token *toks, int max) {
-    int total = 0, line_num = 1;
-    const char *p = src;
-    while (*p && total < max) {
-        const char *eol = strchr(p, '\n');
-        int line_len = eol ? (int)(eol - p) : (int)strlen(p);
-        char line[4096];
-        if (line_len >= (int)sizeof(line)) line_len = sizeof(line) - 1;
-        memcpy(line, p, line_len);
-        line[line_len] = '\0';
-        total += tokenize(line, toks + total, max - total, line_num);
-        p += line_len;
-        if (*p == '\n') p++;
-        line_num++;
-    }
-    return total;
-}
 
 /* ============================================================
    Data stack
@@ -153,15 +28,6 @@ static double peek(void) {
    Dictionary
    ============================================================ */
 
-#define DICT_MAX 256
-#define WORD_BODY_MAX 256
-
-typedef struct {
-    char name[256];
-    Token body[WORD_BODY_MAX];
-    int len;
-} Word;
-
 static Word dict[DICT_MAX];
 static int dict_count = 0;
 
@@ -179,13 +45,11 @@ static Word *find_word(const char *name) {
 static double mem[MEM_CELLS];
 static int here = 0;
 
-/* heap (dynamic allocation) */
 #define HEAP_MAX 1024
 static struct { double *ptr; int size; int addr; } heap[HEAP_MAX];
 static int heap_count = 0;
 static int heap_next = MEM_CELLS;
 
-/* resolve any address (static or heap) to a pointer, NULL if invalid */
 static double *mem_at(int addr) {
     if (addr >= 0 && addr < MEM_CELLS) return &mem[addr];
     for (int i = 0; i < heap_count; i++)
@@ -194,7 +58,6 @@ static double *mem_at(int addr) {
     return NULL;
 }
 
-/* store a C string into linear memory, push addr and length */
 static void store_str(const char *s) {
     int len = (int)strlen(s);
     int addr = here;
@@ -206,7 +69,6 @@ static void store_str(const char *s) {
     push(len);
 }
 
-/* read a string from memory into a C buffer */
 static void mem_to_str(int addr, int len, char *buf, int buf_size) {
     if (len >= buf_size) len = buf_size - 1;
     for (int i = 0; i < len; i++) buf[i] = (char)(int)mem[addr + i];
@@ -491,7 +353,6 @@ static void run_file_with_dir(const char *path);
 static void exec_line(Token *toks, int n) {
     int i = 0;
     while (i < n) {
-        /* :use 'path' */
         if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0) {
             i++;
             if (i >= n || toks[i].type != T_STR) {
@@ -510,7 +371,6 @@ static void exec_line(Token *toks, int n) {
             }
             i++; continue;
         }
-        /* @ name ... ; */
         if (toks[i].type == T_SYM && toks[i].text[0] == '@') {
             i++;
             if (i >= n || toks[i].type != T_WORD) {
@@ -527,7 +387,6 @@ static void exec_line(Token *toks, int n) {
             }
             dict_count++; continue;
         }
-        /* top-level code */
         int start = i;
         while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@'))
             i++;
@@ -542,15 +401,8 @@ static void exec_line(Token *toks, int n) {
    ============================================================ */
 
 static void run_file_with_dir(const char *path) {
-    FILE *fp = fopen(path, "r");
-    if (!fp) { fprintf(stderr, "cannot open: %s\n", path); return; }
-    fseek(fp, 0, SEEK_END);
-    long sz = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    char *src = malloc(sz + 1);
-    fread(src, 1, sz, fp);
-    src[sz] = '\0';
-    fclose(fp);
+    char *src = read_file(path);
+    if (!src) return;
 
     char saved_dir[512];
     strncpy(saved_dir, current_dir, sizeof(saved_dir));

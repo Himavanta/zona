@@ -1,6 +1,6 @@
 #!/bin/bash
 cd "$(dirname "$0")/.."
-cc zona.c -o zona -lm -lreadline 2>&1 || exit 1
+cc src/zona.c -o zona -lm -lreadline 2>&1 || exit 1
 
 PASS=0
 FAIL=0
