@@ -6,11 +6,20 @@
     { "include": "#string" },
     { "include": "#number" },
     { "include": "#definition" },
-    { "include": "#control" },
-    { "include": "#primitive" },
+    { "include": "#return" },
+    { "include": "#conditional" },
+    { "include": "#loop" },
     { "include": "#use" },
-    { "include": "#operator" },
-    { "include": "#memory" }
+    { "include": "#stack-prim" },
+    { "include": "#io-prim" },
+    { "include": "#memory-prim" },
+    { "include": "#system-prim" },
+    { "include": "#debug-prim" },
+    { "include": "#primitive" },
+    { "include": "#arithmetic" },
+    { "include": "#comparison" },
+    { "include": "#print" },
+    { "include": "#memory-op" }
   ],
   "repository": {
     "comment": {
@@ -36,23 +45,59 @@
         { "match": ";", "name": "keyword.control.end.zona" }
       ]
     },
-    "control": {
-      "match": "[?!~$]",
-      "name": "keyword.control.zona"
+    "return": {
+      "match": "\\$",
+      "name": "keyword.control.return.zona"
     },
-    "primitive": {
-      "match": ":[a-z]+",
-      "name": "support.function.builtin.zona"
+    "conditional": {
+      "match": "[?!]",
+      "name": "keyword.control.conditional.zona"
+    },
+    "loop": {
+      "match": "~",
+      "name": "keyword.control.loop.zona"
     },
     "use": {
       "match": ":use",
       "name": "keyword.control.import.zona"
     },
-    "operator": {
-      "match": "[+\\-*/%^><=.]",
-      "name": "keyword.operator.zona"
+    "stack-prim": {
+      "match": ":(dup|drop|swap|over|rot)(?=[\\s'\\)]|$)",
+      "name": "support.function.stack.zona"
     },
-    "memory": {
+    "io-prim": {
+      "match": ":(type|emit|key|fopen|fclose|fread|fwrite)(?=[\\s'\\)]|$)",
+      "name": "support.function.io.zona"
+    },
+    "memory-prim": {
+      "match": ":(here|allot|alloc|free)(?=[\\s'\\)]|$)",
+      "name": "entity.name.function.memory.zona"
+    },
+    "system-prim": {
+      "match": ":(time|rand|exit|argc|argv)(?=[\\s'\\)]|$)",
+      "name": "variable.language.system.zona"
+    },
+    "debug-prim": {
+      "match": ":stack(?=[\\s'\\)]|$)",
+      "name": "markup.italic.debug.zona"
+    },
+    "primitive": {
+      "match": ":[a-z]+",
+      "name": "support.function.builtin.zona"
+    },
+    "arithmetic": {
+      "match": "[+\\-*/%^]",
+      "name": "keyword.operator.arithmetic.zona"
+    },
+    "comparison": {
+      "match": "[><=]",
+      "name": "keyword.operator.comparison.zona"
+    },
+    "print": {
+      "match": "\\.",
+      "name": "keyword.operator.print.zona"
+    },
+    "memory-op": {
       "match": "[&#]",
       "name": "keyword.operator.memory.zona"
     }
