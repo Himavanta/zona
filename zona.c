@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <unistd.h>
+#include <time.h>
 
 /* ---- Token ---- */
 enum TokenType { T_NUM, T_STR, T_SYM, T_PRIM, T_WORD };
@@ -197,6 +198,10 @@ static void exec_prim(const char *name) {
         }
         putchar('\n');
     }
+    else if (strcmp(name, ":time") == 0) { push((double)time(NULL)); }
+    else if (strcmp(name, ":rand") == 0) { push((double)(rand() % (int)pop())); }
+    else if (strcmp(name, ":key") == 0) { push((double)getchar()); }
+    else if (strcmp(name, ":exit") == 0) { exit((int)pop()); }
     else if (strcmp(name, ":alloc") == 0) {
         int n = (int)pop();
         if (heap_count >= HEAP_MAX) { fprintf(stderr, "line %d: heap full\n", cur_line); push(0); return; }

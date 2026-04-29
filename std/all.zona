@@ -1,3 +1,5 @@
 _ 引入全部标准库
 :use './math.zona'
+:use './logic.zona'
+:use './stack.zona'
 :use './io.zona'

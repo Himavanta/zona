@@ -1,0 +1,4 @@
+_ 栈工具
+
+@ nip :swap :drop ;
+@ tuck :swap :over ;

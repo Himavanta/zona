@@ -5,4 +5,3 @@ _ 数学工具
 @ sq :dup * ;
 @ min :over :over > ? :swap :drop ;
 @ max :over :over < ? :swap :drop ;
-@ not 0 = ;
