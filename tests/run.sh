@@ -130,7 +130,7 @@ run "c:peek_poke" "zonac_run /tmp/_test_peek.zona" "$(printf '42\n99')"
 
 # --- S return type test ---
 cat > /tmp/_test_sret.zona << 'ZONA'
-:bind getenv 'getenv' S s
+:bind getenv 'getenv' s s
 'USER' getenv :type 10 :emit
 ZONA
 run "c:S_return" "zonac_run /tmp/_test_sret.zona" "$(whoami)"

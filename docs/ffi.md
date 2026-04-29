@@ -40,8 +40,7 @@ cc game.s -o game -lraylib -lm
 | `l` | long/size_t | 参数+返回 | ✅ |
 | `d` | double | 参数+返回 | ✅ |
 | `f` | float | 参数+返回 | ✅ |
-| `s` | const char* | 参数 | ✅ zona addr+len → C 字符串 |
-| `S` | const char* 返回 | 返回 | ✅ C char* → zona 字符串（自动拷贝）|
+| `s` | const char* | 参数+返回 | ✅ 参数：zona→C，返回：C→zona，自动双向转换 |
 | `p` | 指针 | 参数+返回 | ✅ 数值传递，语义同 `l` |
 | `v` | void | 返回 | ✅ |
 

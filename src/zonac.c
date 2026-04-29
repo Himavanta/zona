@@ -913,7 +913,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                 int rettmp = -1;
                 if (rt != 'v') {
                     rettmp = newtmp();
-                    const char *qrt = (rt == 'd') ? "d" : (rt == 'f') ? "s" : (rt == 'l' || rt == 'p' || rt == 'S') ? "l" : "w";
+                    const char *qrt = (rt == 'd') ? "d" : (rt == 'f') ? "s" : (rt == 'l' || rt == 'p' || rt == 's') ? "l" : "w";
                     fprintf(out, "    %%t%d =%s call $%s(", rettmp, qrt, externs[ei].c_name);
                 } else {
                     fprintf(out, "    call $%s(", externs[ei].c_name);
@@ -938,7 +938,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                 /* push return value */
                 if (rt != 'v') {
                     int rd = newtmp();
-                    if (rt == 'S') {
+                    if (rt == 's') {
                         /* C char* → zona string: copy into mem, push addr+len */
                         fprintf(out, "    call $zona_cstr_to_zona(l %%t%d)\n", rettmp);
                     } else if (rt == 'd') {

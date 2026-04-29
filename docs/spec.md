@@ -295,8 +295,7 @@
 | `l` | long / size_t / 指针 |
 | `d` | double |
 | `f` | float |
-| `s` | const char*（zona 字符串 addr+len 自动转换）|
-| `S` | const char* 返回值（自动拷贝为 zona 字符串，仅用于返回类型）|
+| `s` | const char*（参数：zona→C，返回：C→zona，自动双向转换）|
 | `p` | 指针（语义同 `l`）|
 | `v` | void（仅用于返回类型）|
 

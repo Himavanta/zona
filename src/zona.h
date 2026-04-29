@@ -161,7 +161,7 @@ static char *read_file(const char *path) {
 
 static int is_type_str(const char *s) {
     for (; *s; s++)
-        if (!strchr("idfslpvS", *s)) return 0;
+        if (!strchr("idfslpv", *s)) return 0;
     return 1;
 }
 
