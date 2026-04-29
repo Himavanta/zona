@@ -138,6 +138,12 @@ static Word *find_word(const char *name) {
 static double mem[MEM_CELLS];
 static int here = 0;
 
+/* ---- Heap (dynamic allocation) ---- */
+#define HEAP_MAX 1024
+static struct { double *ptr; int size; int addr; } heap[HEAP_MAX];
+static int heap_count = 0;
+static int heap_next = MEM_CELLS; /* heap addresses start after static memory */
+
 /* Store a string into memory, push addr and length */
 static void store_str(const char *s) {
     int len = (int)strlen(s);
@@ -188,6 +194,30 @@ static void exec_prim(const char *name) {
         }
         putchar('\n');
     }
+    else if (strcmp(name, ":alloc") == 0) {
+        int n = (int)pop();
+        if (heap_count >= HEAP_MAX) { fprintf(stderr, "heap full\n"); push(0); return; }
+        double *p = calloc(n, sizeof(double));
+        if (!p) { fprintf(stderr, "alloc failed\n"); push(0); return; }
+        int addr = heap_next;
+        heap[heap_count].ptr = p;
+        heap[heap_count].size = n;
+        heap[heap_count].addr = addr;
+        heap_count++;
+        heap_next += n;
+        push(addr);
+    }
+    else if (strcmp(name, ":free") == 0) {
+        int addr = (int)pop();
+        for (int i = 0; i < heap_count; i++) {
+            if (heap[i].addr == addr) {
+                free(heap[i].ptr); heap[i].ptr = NULL;
+                heap[i] = heap[--heap_count];
+                return;
+            }
+        }
+        fprintf(stderr, "bad free: %d\n", addr);
+    }
     else fprintf(stderr, "unknown primitive: %s\n", name);
 }
 
@@ -212,11 +242,27 @@ static void exec_sym(char c) {
             break;
         }
         case '&': { int addr = (int)pop();
-            if (addr < 0 || addr >= MEM_CELLS) { fprintf(stderr, "bad address: %d\n", addr); push(0); }
-            else push(mem[addr]); break; }
+            if (addr >= 0 && addr < MEM_CELLS) { push(mem[addr]); }
+            else {
+                int found = 0;
+                for (int i = 0; i < heap_count; i++) {
+                    if (addr >= heap[i].addr && addr < heap[i].addr + heap[i].size) {
+                        push(heap[i].ptr[addr - heap[i].addr]); found = 1; break;
+                    }
+                }
+                if (!found) { fprintf(stderr, "bad address: %d\n", addr); push(0); }
+            } break; }
         case '#': { int addr = (int)pop(); double val = pop();
-            if (addr < 0 || addr >= MEM_CELLS) fprintf(stderr, "bad address: %d\n", addr);
-            else mem[addr] = val; break; }
+            if (addr >= 0 && addr < MEM_CELLS) { mem[addr] = val; }
+            else {
+                int found = 0;
+                for (int i = 0; i < heap_count; i++) {
+                    if (addr >= heap[i].addr && addr < heap[i].addr + heap[i].size) {
+                        heap[i].ptr[addr - heap[i].addr] = val; found = 1; break;
+                    }
+                }
+                if (!found) fprintf(stderr, "bad address: %d\n", addr);
+            } break; }
         default: break;
     }
 }
