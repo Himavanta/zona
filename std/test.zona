@@ -1,0 +1,6 @@
+_ 测试框架
+_ 用法: 'name' actual expected check
+
+@ pass 'PASS ' :type :type 10 :emit ;
+@ fail 'FAIL ' :type :type 10 :emit ;
+@ check = ? pass ! fail ;

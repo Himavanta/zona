@@ -5,7 +5,7 @@
 ## 编译
 
 ```
-cc zona.c -o zona -lm
+cc zona.c -o zona -lm -lreadline
 ```
 
 ## 使用

@@ -1,0 +1,41 @@
+:use '../std/test.zona'
+:use '../std/math.zona'
+:use '../std/logic.zona'
+
+_ 算术
+'add' 3 5 + 8 check
+'sub' 10 3 - 7 check
+'mul' 4 5 * 20 check
+'pow' 2 10 ^ 1024 check
+'mod' 10 3 % 1 check
+
+_ 比较
+'gt' 5 3 > 1 check
+'gt2' 3 5 > 0 check
+'eq' 5 5 = 1 check
+
+_ 标准库
+'abs' -7 abs 7 check
+'sq' 9 sq 81 check
+'min' 3 7 min 3 check
+'max' 3 7 max 7 check
+'not' 1 not 0 check
+'not2' 0 not 1 check
+
+_ 条件
+@ t1 1 ? 10 ! 20 ;
+@ t0 0 ? 10 ! 20 ;
+'cond1' t1 10 check
+'cond0' t0 20 check
+
+_ 循环
+@ sum1 :dup 0 = ? $ :dup :rot + :swap 1 - ~ ;
+@ sum 0 :swap sum1 :drop ;
+'loop' 5 sum 15 check
+
+_ 内存
+1 :allot :here 1 -
+42 :over #
+'mem' :rot & 42 check
+
+'done' :type 10 :emit

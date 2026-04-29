@@ -5,6 +5,8 @@
 #include <math.h>
 #include <unistd.h>
 #include <time.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 /* ---- Token ---- */
 enum TokenType { T_NUM, T_STR, T_SYM, T_PRIM, T_WORD };
@@ -535,14 +537,14 @@ static void run_file(const char *path) {
 }
 
 static void repl(void) {
-    char line[4096];
     Token toks[TOK_MAX];
     int line_num = 1;
-    printf("zona> ");
-    while (fgets(line, sizeof(line), stdin)) {
+    char *line;
+    while ((line = readline("zona> ")) != NULL) {
+        if (*line) add_history(line);
         int n = tokenize(line, toks, TOK_MAX, line_num++);
         exec_line(toks, n);
-        printf("zona> ");
+        free(line);
     }
     printf("\n");
 }
