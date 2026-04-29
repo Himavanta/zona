@@ -51,5 +51,7 @@ _ allot
 3 :allot
 :here .
 
-_ string
-'hello zona' .
+_ string: pushes addr and length, :type prints
+'hello zona' :type
+_ newline after :type
+'hello\nworld' :type

@@ -95,18 +95,6 @@ static int tokenize(const char *line, Token *toks, int max) {
     return n;
 }
 
-/* ---- String pool ---- */
-#define STR_POOL_SIZE 256
-#define STR_MAX_LEN 256
-static char str_pool[STR_POOL_SIZE][STR_MAX_LEN];
-static int str_count = 0;
-
-static int store_str(const char *s) {
-    if (str_count >= STR_POOL_SIZE) { fprintf(stderr, "string pool full\n"); return 0; }
-    strncpy(str_pool[str_count], s, STR_MAX_LEN - 1);
-    return -(str_count++ + 1);
-}
-
 /* ---- Data stack ---- */
 #define STACK_MAX 256
 static double stack[STACK_MAX];
@@ -144,10 +132,22 @@ static Word *find_word(const char *name) {
     return NULL;
 }
 
-/* ---- Memory ---- */
-#define MEM_SIZE 65536
-static double mem[MEM_SIZE];
+/* ---- Memory (cell-based) ---- */
+#define MEM_CELLS 65536
+static double mem[MEM_CELLS];
 static int here = 0;
+
+/* Store a string into memory, push addr and length */
+static void store_str(const char *s) {
+    int len = (int)strlen(s);
+    int addr = here;
+    for (int i = 0; i < len; i++) {
+        if (here >= MEM_CELLS) { fprintf(stderr, "out of memory\n"); return; }
+        mem[here++] = (unsigned char)s[i];
+    }
+    push(addr);
+    push(len);
+}
 
 /* ---- Return stack (for nested word calls) ---- */
 #define RSTACK_MAX 256
@@ -155,12 +155,85 @@ typedef struct { Token *toks; int len; int ip; } Frame;
 static Frame rstack[RSTACK_MAX];
 static int rsp = 0;
 
-/* ---- Interpreter ---- */
+/* ---- Token execution ---- */
+/* Return: 0=normal, 1=return($), 2=loop(~) */
+enum ExecResult { EX_OK, EX_RETURN, EX_LOOP };
 
 static void exec_body(Token *toks, int n);
 
+static void exec_prim(const char *name) {
+    if (strcmp(name, ":dup") == 0) push(peek());
+    else if (strcmp(name, ":drop") == 0) pop();
+    else if (strcmp(name, ":swap") == 0) { double b = pop(), a = pop(); push(b); push(a); }
+    else if (strcmp(name, ":over") == 0) { double b = pop(), a = pop(); push(a); push(b); push(a); }
+    else if (strcmp(name, ":rot") == 0) { double c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); }
+    else if (strcmp(name, ":here") == 0) push(here);
+    else if (strcmp(name, ":allot") == 0) {
+        int n = (int)pop();
+        if (here + n > MEM_CELLS) fprintf(stderr, "out of memory\n");
+        else here += n;
+    }
+    else if (strcmp(name, ":type") == 0) {
+        int len = (int)pop(), addr = (int)pop();
+        for (int i = 0; i < len; i++) putchar((int)mem[addr + i]);
+    }
+    else fprintf(stderr, "unknown primitive: %s\n", name);
+}
+
+static void exec_sym(char c) {
+    double a, b;
+    switch (c) {
+        case '+': b = pop(); a = pop(); push(a + b); break;
+        case '-': b = pop(); a = pop(); push(a - b); break;
+        case '*': b = pop(); a = pop(); push(a * b); break;
+        case '/': b = pop(); a = pop();
+            if (b == 0) { fprintf(stderr, "division by zero\n"); break; }
+            push(a / b); break;
+        case '%': b = pop(); a = pop(); push(fmod(a, b)); break;
+        case '^': b = pop(); a = pop(); push(pow(a, b)); break;
+        case '>': b = pop(); a = pop(); push(a > b ? 1 : 0); break;
+        case '<': b = pop(); a = pop(); push(a < b ? 1 : 0); break;
+        case '=': b = pop(); a = pop(); push(a == b ? 1 : 0); break;
+        case '.': {
+            double v = pop();
+            if (v == (long)v) printf("%ld\n", (long)v);
+            else printf("%g\n", v);
+            break;
+        }
+        case '&': { int addr = (int)pop();
+            if (addr < 0 || addr >= MEM_CELLS) { fprintf(stderr, "bad address: %d\n", addr); push(0); }
+            else push(mem[addr]); break; }
+        case '#': { int addr = (int)pop(); double val = pop();
+            if (addr < 0 || addr >= MEM_CELLS) fprintf(stderr, "bad address: %d\n", addr);
+            else mem[addr] = val; break; }
+        default: break;
+    }
+}
+
+/* Execute a single token in-place. Returns EX_RETURN for $, EX_LOOP for ~, EX_OK otherwise. */
+static enum ExecResult exec_one(Token *t) {
+    switch (t->type) {
+        case T_NUM: push(t->num); return EX_OK;
+        case T_STR: store_str(t->text); return EX_OK;
+        case T_SYM: {
+            char c = t->text[0];
+            if (c == '$') return EX_RETURN;
+            if (c == '~') return EX_LOOP;
+            exec_sym(c);
+            return EX_OK;
+        }
+        case T_PRIM: exec_prim(t->text); return EX_OK;
+        case T_WORD: {
+            Word *w = find_word(t->text);
+            if (w) exec_body(w->body, w->len);
+            else fprintf(stderr, "unknown word: %s\n", t->text);
+            return EX_OK;
+        }
+    }
+    return EX_OK;
+}
+
 static void exec_body(Token *toks, int n) {
-    /* push call frame */
     if (rsp >= RSTACK_MAX) { fprintf(stderr, "return stack overflow\n"); return; }
     Frame *f = &rstack[rsp++];
     f->toks = toks; f->len = n; f->ip = 0;
@@ -168,171 +241,32 @@ static void exec_body(Token *toks, int n) {
     while (f->ip < f->len) {
         Token *t = &f->toks[f->ip];
 
-        if (t->type == T_NUM) { push(t->num); f->ip++; continue; }
-        if (t->type == T_STR) { push(store_str(t->text)); f->ip++; continue; }
+        /* handle ? inline for correct $ and ~ behavior */
+        if (t->type == T_SYM && t->text[0] == '?') {
+            double cond = pop();
+            f->ip++;
+            if (f->ip >= f->len) break;
 
-        if (t->type == T_SYM) {
-            char c = t->text[0];
-            double a, b;
-            switch (c) {
-                case '+': b = pop(); a = pop(); push(a + b); break;
-                case '-': b = pop(); a = pop(); push(a - b); break;
-                case '*': b = pop(); a = pop(); push(a * b); break;
-                case '/': b = pop(); a = pop();
-                    if (b == 0) { fprintf(stderr, "division by zero\n"); break; }
-                    push(a / b); break;
-                case '%': b = pop(); a = pop(); push(fmod(a, b)); break;
-                case '^': b = pop(); a = pop(); push(pow(a, b)); break;
-                case '>': b = pop(); a = pop(); push(a > b ? 1 : 0); break;
-                case '<': b = pop(); a = pop(); push(a < b ? 1 : 0); break;
-                case '=': b = pop(); a = pop(); push(a == b ? 1 : 0); break;
-                case '.': {
-                    double v = pop();
-                    int iv = (int)v;
-                    if (iv < 0 && iv >= -str_count)
-                        printf("%s\n", str_pool[-(iv + 1)]);
-                    else if (v == (long)v) printf("%ld\n", (long)v);
-                    else printf("%g\n", v);
-                    break;
-                }
-                case '&': { /* memory read */
-                    int addr = (int)pop();
-                    if (addr < 0 || addr >= MEM_SIZE) { fprintf(stderr, "bad address: %d\n", addr); push(0); }
-                    else push(mem[addr]);
-                    break;
-                }
-                case '#': { /* memory write */
-                    int addr = (int)pop();
-                    double val = pop();
-                    if (addr < 0 || addr >= MEM_SIZE) fprintf(stderr, "bad address: %d\n", addr);
-                    else mem[addr] = val;
-                    break;
-                }
-                case '~': /* jump to word start */
-                    f->ip = 0; continue;
-                case '$': /* return from word */
-                    goto done;
-                case '?': { /* conditional */
-                    double cond = pop();
-                    f->ip++;
-                    if (f->ip >= f->len) break;
-                    /* check for ? X ! Y pattern */
-                    int has_else = (f->ip + 2 <= f->len &&
-                                    f->toks[f->ip + 1].type == T_SYM &&
-                                    f->toks[f->ip + 1].text[0] == '!');
-                    if (has_else) {
-                        if (cond) {
-                            /* execute true token at f->ip, then skip ! and false */
-                            Token *tt = &f->toks[f->ip];
-                            if (tt->type == T_SYM && tt->text[0] == '$') { goto done; }
-                            else if (tt->type == T_SYM && tt->text[0] == '~') { f->ip = 0; }
-                            else if (tt->type == T_WORD) {
-                                Word *w = find_word(tt->text);
-                                if (w) exec_body(w->body, w->len);
-                                else fprintf(stderr, "unknown word: %s\n", tt->text);
-                                f->ip += 3;
-                            } else {
-                                /* inline execute: num, str, prim, other sym */
-                                f->ip--; /* back up so the skip logic works */
-                                f->ip += 1; /* point to true token */
-                                /* let it fall through... no, this is getting messy */
-                                /* Just directly handle it */
-                                if (tt->type == T_NUM) push(tt->num);
-                                else if (tt->type == T_STR) push(store_str(tt->text));
-                                else if (tt->type == T_PRIM) {
-                                    if (strcmp(tt->text, ":dup") == 0) push(peek());
-                                    else if (strcmp(tt->text, ":drop") == 0) pop();
-                                    else if (strcmp(tt->text, ":swap") == 0) { double b2=pop(),a2=pop(); push(b2);push(a2); }
-                                    else if (strcmp(tt->text, ":over") == 0) { double b2=pop(),a2=pop(); push(a2);push(b2);push(a2); }
-                                    else if (strcmp(tt->text, ":rot") == 0) { double c2=pop(),b2=pop(),a2=pop(); push(b2);push(c2);push(a2); }
-                                    else if (strcmp(tt->text, ":here") == 0) push(here);
-                                    else if (strcmp(tt->text, ":allot") == 0) { int nn=(int)pop(); if(here+nn>MEM_SIZE) fprintf(stderr,"out of memory\n"); else here+=nn; }
-                                }
-                                f->ip += 3;
-                            }
-                        } else {
-                            /* execute false token at f->ip+2 */
-                            Token *tf = &f->toks[f->ip + 2];
-                            if (tf->type == T_SYM && tf->text[0] == '$') { goto done; }
-                            else if (tf->type == T_SYM && tf->text[0] == '~') { f->ip = 0; }
-                            else if (tf->type == T_WORD) {
-                                Word *w = find_word(tf->text);
-                                if (w) exec_body(w->body, w->len);
-                                else fprintf(stderr, "unknown word: %s\n", tf->text);
-                                f->ip += 3;
-                            } else {
-                                if (tf->type == T_NUM) push(tf->num);
-                                else if (tf->type == T_STR) push(store_str(tf->text));
-                                else if (tf->type == T_PRIM) {
-                                    if (strcmp(tf->text, ":dup") == 0) push(peek());
-                                    else if (strcmp(tf->text, ":drop") == 0) pop();
-                                    else if (strcmp(tf->text, ":swap") == 0) { double b2=pop(),a2=pop(); push(b2);push(a2); }
-                                    else if (strcmp(tf->text, ":over") == 0) { double b2=pop(),a2=pop(); push(a2);push(b2);push(a2); }
-                                    else if (strcmp(tf->text, ":rot") == 0) { double c2=pop(),b2=pop(),a2=pop(); push(b2);push(c2);push(a2); }
-                                    else if (strcmp(tf->text, ":here") == 0) push(here);
-                                    else if (strcmp(tf->text, ":allot") == 0) { int nn=(int)pop(); if(here+nn>MEM_SIZE) fprintf(stderr,"out of memory\n"); else here+=nn; }
-                                }
-                                f->ip += 3;
-                            }
-                        }
-                    } else {
-                        if (cond) {
-                            Token *tt = &f->toks[f->ip];
-                            if (tt->type == T_SYM && tt->text[0] == '$') { goto done; }
-                            else if (tt->type == T_SYM && tt->text[0] == '~') { f->ip = 0; }
-                            else if (tt->type == T_WORD) {
-                                Word *w = find_word(tt->text);
-                                if (w) exec_body(w->body, w->len);
-                                else fprintf(stderr, "unknown word: %s\n", tt->text);
-                                f->ip++;
-                            } else {
-                                if (tt->type == T_NUM) push(tt->num);
-                                else if (tt->type == T_STR) push(store_str(tt->text));
-                                else if (tt->type == T_PRIM) {
-                                    if (strcmp(tt->text, ":dup") == 0) push(peek());
-                                    else if (strcmp(tt->text, ":drop") == 0) pop();
-                                    else if (strcmp(tt->text, ":swap") == 0) { double b2=pop(),a2=pop(); push(b2);push(a2); }
-                                    else if (strcmp(tt->text, ":over") == 0) { double b2=pop(),a2=pop(); push(a2);push(b2);push(a2); }
-                                    else if (strcmp(tt->text, ":rot") == 0) { double c2=pop(),b2=pop(),a2=pop(); push(b2);push(c2);push(a2); }
-                                    else if (strcmp(tt->text, ":here") == 0) push(here);
-                                    else if (strcmp(tt->text, ":allot") == 0) { int nn=(int)pop(); if(here+nn>MEM_SIZE) fprintf(stderr,"out of memory\n"); else here+=nn; }
-                                }
-                                f->ip++;
-                            }
-                        } else {
-                            f->ip++; /* skip the one token */
-                        }
-                    }
-                    continue;
-                }
-                default: break;
+            int has_else = (f->ip + 2 <= f->len &&
+                            f->toks[f->ip + 1].type == T_SYM &&
+                            f->toks[f->ip + 1].text[0] == '!');
+            Token *chosen = has_else
+                ? (cond ? &f->toks[f->ip] : &f->toks[f->ip + 2])
+                : (cond ? &f->toks[f->ip] : NULL);
+
+            if (chosen) {
+                enum ExecResult r = exec_one(chosen);
+                if (r == EX_RETURN) goto done;
+                if (r == EX_LOOP) { f->ip = 0; continue; }
             }
-            f->ip++; continue;
+            f->ip += has_else ? 3 : 1;
+            continue;
         }
 
-        if (t->type == T_PRIM) {
-            if (strcmp(t->text, ":dup") == 0) { push(peek()); }
-            else if (strcmp(t->text, ":drop") == 0) { pop(); }
-            else if (strcmp(t->text, ":swap") == 0) { double b = pop(), a = pop(); push(b); push(a); }
-            else if (strcmp(t->text, ":over") == 0) { double b = pop(), a = pop(); push(a); push(b); push(a); }
-            else if (strcmp(t->text, ":rot") == 0) { double c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); }
-            else if (strcmp(t->text, ":here") == 0) { push(here); }
-            else if (strcmp(t->text, ":allot") == 0) {
-                int n = (int)pop();
-                if (here + n > MEM_SIZE) fprintf(stderr, "out of memory\n");
-                else here += n;
-            }
-            else fprintf(stderr, "unknown primitive: %s\n", t->text);
-            f->ip++; continue;
-        }
-
-        if (t->type == T_WORD) {
-            Word *w = find_word(t->text);
-            if (w) exec_body(w->body, w->len);
-            else fprintf(stderr, "unknown word: %s\n", t->text);
-            f->ip++; continue;
-        }
-
+        /* normal token execution */
+        enum ExecResult r = exec_one(t);
+        if (r == EX_RETURN) goto done;
+        if (r == EX_LOOP) { f->ip = 0; continue; }
         f->ip++;
     }
 done:
@@ -343,7 +277,6 @@ done:
 static void exec_line(Token *toks, int n) {
     int i = 0;
     while (i < n) {
-        /* word definition: @ name ... ; */
         if (toks[i].type == T_SYM && toks[i].text[0] == '@') {
             i++;
             if (i >= n || toks[i].type != T_WORD) {
@@ -362,11 +295,9 @@ static void exec_line(Token *toks, int n) {
             dict_count++;
             continue;
         }
-        /* collect top-level code until next @ or end */
         int start = i;
         while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@'))
             i++;
-        /* wrap in a virtual word so ~ and $ work */
         Word tmp = {.len = i - start};
         memcpy(tmp.body, &toks[start], tmp.len * sizeof(Token));
         exec_body(tmp.body, tmp.len);
@@ -380,7 +311,6 @@ static int tokenize_all(const char *src, Token *toks, int max) {
     int total = 0;
     const char *p = src;
     while (*p && total < max) {
-        /* find line end */
         const char *eol = strchr(p, '\n');
         int line_len = eol ? (int)(eol - p) : (int)strlen(p);
         char line[4096];
@@ -397,15 +327,15 @@ static int tokenize_all(const char *src, Token *toks, int max) {
 /* ---- Main ---- */
 
 static void run_file(const char *path) {
-    FILE *f = fopen(path, "r");
-    if (!f) { fprintf(stderr, "cannot open: %s\n", path); exit(1); }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    FILE *fp = fopen(path, "r");
+    if (!fp) { fprintf(stderr, "cannot open: %s\n", path); exit(1); }
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
     char *src = malloc(sz + 1);
-    fread(src, 1, sz, f);
+    fread(src, 1, sz, fp);
     src[sz] = '\0';
-    fclose(f);
+    fclose(fp);
 
     Token toks[TOK_MAX];
     int n = tokenize_all(src, toks, TOK_MAX);
