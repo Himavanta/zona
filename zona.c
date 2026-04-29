@@ -8,7 +8,10 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
-/* ---- Token ---- */
+/* ============================================================
+   Token
+   ============================================================ */
+
 enum TokenType { T_NUM, T_STR, T_SYM, T_PRIM, T_WORD };
 
 typedef struct {
@@ -18,7 +21,10 @@ typedef struct {
     int line;
 } Token;
 
-/* ---- Tokenizer ---- */
+/* ============================================================
+   Tokenizer
+   ============================================================ */
+
 static const char *SYMS = "@;$?!~&#+-*/%^><=._'";
 
 static int tokenize(const char *line, Token *toks, int max, int line_num) {
@@ -30,6 +36,7 @@ static int tokenize(const char *line, Token *toks, int max, int line_num) {
         if (*p == '_') break;
         toks[n].line = line_num;
 
+        /* string */
         if (*p == '\'') {
             p++;
             int len = 0;
@@ -53,7 +60,7 @@ static int tokenize(const char *line, Token *toks, int max, int line_num) {
             toks[n].type = T_STR;
             n++; continue;
         }
-
+        /* negative number */
         if (*p == '-' && isdigit((unsigned char)*(p+1))) {
             const char *s = p; p++;
             while (isdigit((unsigned char)*p) || *p == '.') p++;
@@ -62,7 +69,7 @@ static int tokenize(const char *line, Token *toks, int max, int line_num) {
             toks[n].type = T_NUM; toks[n].num = atof(toks[n].text);
             n++; continue;
         }
-
+        /* number */
         if (isdigit((unsigned char)*p)) {
             const char *s = p;
             while (isdigit((unsigned char)*p) || *p == '.') p++;
@@ -71,13 +78,13 @@ static int tokenize(const char *line, Token *toks, int max, int line_num) {
             toks[n].type = T_NUM; toks[n].num = atof(toks[n].text);
             n++; continue;
         }
-
+        /* single symbol */
         if (strchr(SYMS, *p) && *p != '\'' && *p != '_') {
             toks[n].text[0] = *p; toks[n].text[1] = '\0';
             toks[n].type = T_SYM; p++;
             n++; continue;
         }
-
+        /* system primitive :xxx */
         if (*p == ':' && isalpha((unsigned char)*(p+1))) {
             const char *s = p; p++;
             while (isalpha((unsigned char)*p)) p++;
@@ -86,7 +93,7 @@ static int tokenize(const char *line, Token *toks, int max, int line_num) {
             toks[n].type = T_PRIM;
             n++; continue;
         }
-
+        /* user word */
         if (isalpha((unsigned char)*p)) {
             const char *s = p;
             while (isalpha((unsigned char)*p) || isdigit((unsigned char)*p)) p++;
@@ -95,17 +102,39 @@ static int tokenize(const char *line, Token *toks, int max, int line_num) {
             toks[n].type = T_WORD;
             n++; continue;
         }
-
         p++;
     }
     return n;
 }
 
-/* ---- Data stack ---- */
+#define TOK_MAX 4096
+
+static int tokenize_all(const char *src, Token *toks, int max) {
+    int total = 0, line_num = 1;
+    const char *p = src;
+    while (*p && total < max) {
+        const char *eol = strchr(p, '\n');
+        int line_len = eol ? (int)(eol - p) : (int)strlen(p);
+        char line[4096];
+        if (line_len >= (int)sizeof(line)) line_len = sizeof(line) - 1;
+        memcpy(line, p, line_len);
+        line[line_len] = '\0';
+        total += tokenize(line, toks + total, max - total, line_num);
+        p += line_len;
+        if (*p == '\n') p++;
+        line_num++;
+    }
+    return total;
+}
+
+/* ============================================================
+   Data stack
+   ============================================================ */
+
 #define STACK_MAX 256
 static double stack[STACK_MAX];
 static int sp = 0;
-static int cur_line = 0; /* current executing line for error messages */
+static int cur_line = 0;
 
 static void push(double v) {
     if (sp >= STACK_MAX) { fprintf(stderr, "line %d: stack overflow\n", cur_line); return; }
@@ -120,7 +149,10 @@ static double peek(void) {
     return stack[sp - 1];
 }
 
-/* ---- Dictionary (user-defined words) ---- */
+/* ============================================================
+   Dictionary
+   ============================================================ */
+
 #define DICT_MAX 256
 #define WORD_BODY_MAX 256
 
@@ -139,27 +171,30 @@ static Word *find_word(const char *name) {
     return NULL;
 }
 
-/* ---- Memory (cell-based) ---- */
+/* ============================================================
+   Memory
+   ============================================================ */
+
 #define MEM_CELLS 65536
 static double mem[MEM_CELLS];
 static int here = 0;
 
-/* ---- Heap (dynamic allocation) ---- */
+/* heap (dynamic allocation) */
 #define HEAP_MAX 1024
 static struct { double *ptr; int size; int addr; } heap[HEAP_MAX];
 static int heap_count = 0;
 static int heap_next = MEM_CELLS;
 
-/* ---- Program arguments ---- */
-static int prog_argc = 0;
-static char **prog_argv = NULL;
+/* resolve any address (static or heap) to a pointer, NULL if invalid */
+static double *mem_at(int addr) {
+    if (addr >= 0 && addr < MEM_CELLS) return &mem[addr];
+    for (int i = 0; i < heap_count; i++)
+        if (addr >= heap[i].addr && addr < heap[i].addr + heap[i].size)
+            return &heap[i].ptr[addr - heap[i].addr];
+    return NULL;
+}
 
-/* ---- File handles ---- */
-#define FHANDLE_MAX 16
-static FILE *fhandles[FHANDLE_MAX];
-static int fhandle_count = 0; /* heap addresses start after static memory */
-
-/* Store a string into memory, push addr and length */
+/* store a C string into linear memory, push addr and length */
 static void store_str(const char *s) {
     int len = (int)strlen(s);
     int addr = here;
@@ -171,36 +206,136 @@ static void store_str(const char *s) {
     push(len);
 }
 
-/* ---- Return stack (for nested word calls) ---- */
+/* read a string from memory into a C buffer */
+static void mem_to_str(int addr, int len, char *buf, int buf_size) {
+    if (len >= buf_size) len = buf_size - 1;
+    for (int i = 0; i < len; i++) buf[i] = (char)(int)mem[addr + i];
+    buf[len] = '\0';
+}
+
+/* ============================================================
+   Program arguments & file handles
+   ============================================================ */
+
+static int prog_argc = 0;
+static char **prog_argv = NULL;
+
+#define FHANDLE_MAX 16
+static FILE *fhandles[FHANDLE_MAX];
+static int fhandle_count = 0;
+
+/* ============================================================
+   Return stack
+   ============================================================ */
+
 #define RSTACK_MAX 256
 typedef struct { Token *toks; int len; int ip; } Frame;
 static Frame rstack[RSTACK_MAX];
 static int rsp = 0;
 
-/* ---- Token execution ---- */
-/* Return: 0=normal, 1=return($), 2=loop(~) */
-enum ExecResult { EX_OK, EX_RETURN, EX_LOOP };
+/* ============================================================
+   Primitives
+   ============================================================ */
 
+enum ExecResult { EX_OK, EX_RETURN, EX_LOOP };
 static void exec_body(Token *toks, int n);
 
 static void exec_prim(const char *name) {
-    if (strcmp(name, ":dup") == 0) push(peek());
-    else if (strcmp(name, ":drop") == 0) pop();
-    else if (strcmp(name, ":swap") == 0) { double b = pop(), a = pop(); push(b); push(a); }
-    else if (strcmp(name, ":over") == 0) { double b = pop(), a = pop(); push(a); push(b); push(a); }
-    else if (strcmp(name, ":rot") == 0) { double c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); }
-    else if (strcmp(name, ":here") == 0) push(here);
-    else if (strcmp(name, ":allot") == 0) {
+    /* stack ops */
+    if (strcmp(name, ":dup") == 0) { push(peek()); return; }
+    if (strcmp(name, ":drop") == 0) { pop(); return; }
+    if (strcmp(name, ":swap") == 0) { double b = pop(), a = pop(); push(b); push(a); return; }
+    if (strcmp(name, ":over") == 0) { double b = pop(), a = pop(); push(a); push(b); push(a); return; }
+    if (strcmp(name, ":rot") == 0) { double c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); return; }
+
+    /* memory */
+    if (strcmp(name, ":here") == 0) { push(here); return; }
+    if (strcmp(name, ":allot") == 0) {
         int n = (int)pop();
         if (here + n > MEM_CELLS) fprintf(stderr, "line %d: out of memory\n", cur_line);
         else here += n;
+        return;
     }
-    else if (strcmp(name, ":type") == 0) {
+    if (strcmp(name, ":alloc") == 0) {
+        int n = (int)pop();
+        if (heap_count >= HEAP_MAX) { fprintf(stderr, "line %d: heap full\n", cur_line); push(0); return; }
+        double *p = calloc(n, sizeof(double));
+        if (!p) { fprintf(stderr, "line %d: alloc failed\n", cur_line); push(0); return; }
+        heap[heap_count] = (typeof(heap[0])){p, n, heap_next};
+        push(heap_next);
+        heap_next += n;
+        heap_count++;
+        return;
+    }
+    if (strcmp(name, ":free") == 0) {
+        int addr = (int)pop();
+        for (int i = 0; i < heap_count; i++) {
+            if (heap[i].addr == addr) {
+                free(heap[i].ptr);
+                heap[i] = heap[--heap_count];
+                return;
+            }
+        }
+        fprintf(stderr, "line %d: bad free: %d\n", cur_line, addr);
+        return;
+    }
+
+    /* io */
+    if (strcmp(name, ":type") == 0) {
         int len = (int)pop(), addr = (int)pop();
         for (int i = 0; i < len; i++) putchar((int)mem[addr + i]);
+        return;
     }
-    else if (strcmp(name, ":emit") == 0) { putchar((int)pop()); }
-    else if (strcmp(name, ":stack") == 0) {
+    if (strcmp(name, ":emit") == 0) { putchar((int)pop()); return; }
+    if (strcmp(name, ":key") == 0) { push((double)getchar()); return; }
+
+    /* file io */
+    if (strcmp(name, ":fopen") == 0) {
+        int mlen = (int)pop(), maddr = (int)pop();
+        int plen = (int)pop(), paddr = (int)pop();
+        char path[512], mode[16];
+        mem_to_str(paddr, plen, path, sizeof(path));
+        mem_to_str(maddr, mlen, mode, sizeof(mode));
+        if (fhandle_count >= FHANDLE_MAX) { fprintf(stderr, "line %d: too many open files\n", cur_line); push(-1); return; }
+        FILE *fp = fopen(path, mode);
+        if (!fp) { fprintf(stderr, "line %d: cannot open: %s\n", cur_line, path); push(-1); return; }
+        fhandles[fhandle_count] = fp;
+        push(fhandle_count++);
+        return;
+    }
+    if (strcmp(name, ":fclose") == 0) {
+        int h = (int)pop();
+        if (h >= 0 && h < fhandle_count && fhandles[h]) { fclose(fhandles[h]); fhandles[h] = NULL; }
+        else fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h);
+        return;
+    }
+    if (strcmp(name, ":fread") == 0) {
+        int h = (int)pop();
+        if (h >= 0 && h < fhandle_count && fhandles[h]) { int c = fgetc(fhandles[h]); push(c == EOF ? -1 : c); }
+        else { fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h); push(-1); }
+        return;
+    }
+    if (strcmp(name, ":fwrite") == 0) {
+        int h = (int)pop(), c = (int)pop();
+        if (h >= 0 && h < fhandle_count && fhandles[h]) fputc(c, fhandles[h]);
+        else fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h);
+        return;
+    }
+
+    /* system */
+    if (strcmp(name, ":time") == 0) { push((double)time(NULL)); return; }
+    if (strcmp(name, ":rand") == 0) { push((double)(rand() % (int)pop())); return; }
+    if (strcmp(name, ":exit") == 0) { exit((int)pop()); }
+    if (strcmp(name, ":argc") == 0) { push(prog_argc); return; }
+    if (strcmp(name, ":argv") == 0) {
+        int idx = (int)pop();
+        if (idx >= 0 && idx < prog_argc) store_str(prog_argv[idx]);
+        else { fprintf(stderr, "line %d: argv index out of range: %d\n", cur_line, idx); push(0); push(0); }
+        return;
+    }
+
+    /* debug */
+    if (strcmp(name, ":stack") == 0) {
         printf("<%d>", sp);
         for (int i = 0; i < sp; i++) {
             double v = stack[i];
@@ -208,79 +343,18 @@ static void exec_prim(const char *name) {
             else printf(" %g", v);
         }
         putchar('\n');
+        return;
     }
-    else if (strcmp(name, ":time") == 0) { push((double)time(NULL)); }
-    else if (strcmp(name, ":rand") == 0) { push((double)(rand() % (int)pop())); }
-    else if (strcmp(name, ":key") == 0) { push((double)getchar()); }
-    else if (strcmp(name, ":exit") == 0) { exit((int)pop()); }
-    else if (strcmp(name, ":argc") == 0) { push(prog_argc); }
-    else if (strcmp(name, ":argv") == 0) {
-        int idx = (int)pop();
-        if (idx >= 0 && idx < prog_argc) store_str(prog_argv[idx]);
-        else { fprintf(stderr, "line %d: argv index out of range: %d\n", cur_line, idx); push(0); push(0); }
-    }
-    else if (strcmp(name, ":fopen") == 0) {
-        /* mode_addr mode_len path_addr path_len -- handle */
-        int mlen = (int)pop(), maddr = (int)pop();
-        int plen = (int)pop(), paddr = (int)pop();
-        char path[512] = {0}, mode[16] = {0};
-        for (int i = 0; i < plen && i < 511; i++) path[i] = (char)(int)mem[paddr + i];
-        for (int i = 0; i < mlen && i < 15; i++) mode[i] = (char)(int)mem[maddr + i];
-        if (fhandle_count >= FHANDLE_MAX) { fprintf(stderr, "line %d: too many open files\n", cur_line); push(-1); return; }
-        FILE *fp = fopen(path, mode);
-        if (!fp) { fprintf(stderr, "line %d: cannot open: %s\n", cur_line, path); push(-1); return; }
-        fhandles[fhandle_count] = fp;
-        push(fhandle_count++);
-    }
-    else if (strcmp(name, ":fclose") == 0) {
-        int h = (int)pop();
-        if (h >= 0 && h < fhandle_count && fhandles[h]) { fclose(fhandles[h]); fhandles[h] = NULL; }
-        else fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h);
-    }
-    else if (strcmp(name, ":fread") == 0) {
-        /* handle -- char (or -1 on EOF) */
-        int h = (int)pop();
-        if (h >= 0 && h < fhandle_count && fhandles[h]) {
-            int c = fgetc(fhandles[h]);
-            push(c == EOF ? -1 : c);
-        } else { fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h); push(-1); }
-    }
-    else if (strcmp(name, ":fwrite") == 0) {
-        /* char handle -- */
-        int h = (int)pop();
-        int c = (int)pop();
-        if (h >= 0 && h < fhandle_count && fhandles[h]) fputc(c, fhandles[h]);
-        else fprintf(stderr, "line %d: bad file handle: %d\n", cur_line, h);
-    }
-    else if (strcmp(name, ":alloc") == 0) {
-        int n = (int)pop();
-        if (heap_count >= HEAP_MAX) { fprintf(stderr, "line %d: heap full\n", cur_line); push(0); return; }
-        double *p = calloc(n, sizeof(double));
-        if (!p) { fprintf(stderr, "line %d: alloc failed\n", cur_line); push(0); return; }
-        int addr = heap_next;
-        heap[heap_count].ptr = p;
-        heap[heap_count].size = n;
-        heap[heap_count].addr = addr;
-        heap_count++;
-        heap_next += n;
-        push(addr);
-    }
-    else if (strcmp(name, ":free") == 0) {
-        int addr = (int)pop();
-        for (int i = 0; i < heap_count; i++) {
-            if (heap[i].addr == addr) {
-                free(heap[i].ptr); heap[i].ptr = NULL;
-                heap[i] = heap[--heap_count];
-                return;
-            }
-        }
-        fprintf(stderr, "line %d: bad free: %d\n", cur_line, addr);
-    }
-    else fprintf(stderr, "line %d: unknown primitive: %s\n", cur_line, name);
+
+    fprintf(stderr, "line %d: unknown primitive: %s\n", cur_line, name);
 }
 
+/* ============================================================
+   Symbol execution
+   ============================================================ */
+
 static void exec_sym(char c) {
-    double a, b;
+    double a, b, *p;
     switch (c) {
         case '+': b = pop(); a = pop(); push(a + b); break;
         case '-': b = pop(); a = pop(); push(a - b); break;
@@ -293,50 +367,36 @@ static void exec_sym(char c) {
         case '>': b = pop(); a = pop(); push(a > b ? 1 : 0); break;
         case '<': b = pop(); a = pop(); push(a < b ? 1 : 0); break;
         case '=': b = pop(); a = pop(); push(a == b ? 1 : 0); break;
-        case '.': {
-            double v = pop();
-            if (v == (long)v) printf("%ld\n", (long)v);
-            else printf("%g\n", v);
+        case '.': a = pop();
+            if (a == (long)a) printf("%ld\n", (long)a);
+            else printf("%g\n", a);
             break;
-        }
-        case '&': { int addr = (int)pop();
-            if (addr >= 0 && addr < MEM_CELLS) { push(mem[addr]); }
-            else {
-                int found = 0;
-                for (int i = 0; i < heap_count; i++) {
-                    if (addr >= heap[i].addr && addr < heap[i].addr + heap[i].size) {
-                        push(heap[i].ptr[addr - heap[i].addr]); found = 1; break;
-                    }
-                }
-                if (!found) { fprintf(stderr, "line %d: bad address: %d\n", cur_line, addr); push(0); }
-            } break; }
+        case '&': p = mem_at((int)pop());
+            if (p) push(*p);
+            else { fprintf(stderr, "line %d: bad address\n", cur_line); push(0); }
+            break;
         case '#': { int addr = (int)pop(); double val = pop();
-            if (addr >= 0 && addr < MEM_CELLS) { mem[addr] = val; }
-            else {
-                int found = 0;
-                for (int i = 0; i < heap_count; i++) {
-                    if (addr >= heap[i].addr && addr < heap[i].addr + heap[i].size) {
-                        heap[i].ptr[addr - heap[i].addr] = val; found = 1; break;
-                    }
-                }
-                if (!found) fprintf(stderr, "line %d: bad address: %d\n", cur_line, addr);
-            } break; }
+            p = mem_at(addr);
+            if (p) *p = val;
+            else fprintf(stderr, "line %d: bad address\n", cur_line);
+            break; }
         default: break;
     }
 }
 
-/* Execute a single token in-place. Returns EX_RETURN for $, EX_LOOP for ~, EX_OK otherwise. */
+/* ============================================================
+   Interpreter
+   ============================================================ */
+
 static enum ExecResult exec_one(Token *t) {
     switch (t->type) {
         case T_NUM: push(t->num); return EX_OK;
         case T_STR: store_str(t->text); return EX_OK;
-        case T_SYM: {
-            char c = t->text[0];
-            if (c == '$') return EX_RETURN;
-            if (c == '~') return EX_LOOP;
-            exec_sym(c);
+        case T_SYM:
+            if (t->text[0] == '$') return EX_RETURN;
+            if (t->text[0] == '~') return EX_LOOP;
+            exec_sym(t->text[0]);
             return EX_OK;
-        }
         case T_PRIM: exec_prim(t->text); return EX_OK;
         case T_WORD: {
             Word *w = find_word(t->text);
@@ -357,19 +417,16 @@ static void exec_body(Token *toks, int n) {
         Token *t = &f->toks[f->ip];
         cur_line = t->line;
 
-        /* handle ? inline for correct $ and ~ behavior */
         if (t->type == T_SYM && t->text[0] == '?') {
             double cond = pop();
             f->ip++;
             if (f->ip >= f->len) break;
-
             int has_else = (f->ip + 2 <= f->len &&
                             f->toks[f->ip + 1].type == T_SYM &&
                             f->toks[f->ip + 1].text[0] == '!');
             Token *chosen = has_else
                 ? (cond ? &f->toks[f->ip] : &f->toks[f->ip + 2])
                 : (cond ? &f->toks[f->ip] : NULL);
-
             if (chosen) {
                 enum ExecResult r = exec_one(chosen);
                 if (r == EX_RETURN) goto done;
@@ -379,7 +436,6 @@ static void exec_body(Token *toks, int n) {
             continue;
         }
 
-        /* normal token execution */
         enum ExecResult r = exec_one(t);
         if (r == EX_RETURN) goto done;
         if (r == EX_LOOP) { f->ip = 0; continue; }
@@ -389,7 +445,10 @@ done:
     rsp--;
 }
 
-/* ---- File tracking (for :use) ---- */
+/* ============================================================
+   File loading & :use
+   ============================================================ */
+
 #define USE_MAX 64
 static char used_files[USE_MAX][512];
 static int used_count = 0;
@@ -425,7 +484,10 @@ static void dir_of(const char *path, char *out, int out_size) {
 
 static void run_file_with_dir(const char *path);
 
-/* Top-level: handles :use, @ definitions, and executes top-level code */
+/* ============================================================
+   Top-level execution
+   ============================================================ */
+
 static void exec_line(Token *toks, int n) {
     int i = 0;
     while (i < n) {
@@ -446,9 +508,9 @@ static void exec_line(Token *toks, int n) {
                 strncpy(used_files[used_count++], resolved, 511);
                 run_file_with_dir(resolved);
             }
-            i++;
-            continue;
+            i++; continue;
         }
+        /* @ name ... ; */
         if (toks[i].type == T_SYM && toks[i].text[0] == '@') {
             i++;
             if (i >= n || toks[i].type != T_WORD) {
@@ -457,16 +519,15 @@ static void exec_line(Token *toks, int n) {
             if (dict_count >= DICT_MAX) { fprintf(stderr, "dictionary full\n"); return; }
             Word *w = &dict[dict_count];
             strncpy(w->name, toks[i].text, 255);
-            i++;
-            w->len = 0;
+            i++; w->len = 0;
             while (i < n) {
                 if (toks[i].type == T_SYM && toks[i].text[0] == ';') { i++; break; }
                 if (w->len >= WORD_BODY_MAX) { fprintf(stderr, "word body too long\n"); return; }
                 w->body[w->len++] = toks[i++];
             }
-            dict_count++;
-            continue;
+            dict_count++; continue;
         }
+        /* top-level code */
         int start = i;
         while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@'))
             i++;
@@ -476,26 +537,9 @@ static void exec_line(Token *toks, int n) {
     }
 }
 
-/* ---- Tokenize entire source (multi-line) ---- */
-#define TOK_MAX 4096
-
-static int tokenize_all(const char *src, Token *toks, int max) {
-    int total = 0, line_num = 1;
-    const char *p = src;
-    while (*p && total < max) {
-        const char *eol = strchr(p, '\n');
-        int line_len = eol ? (int)(eol - p) : (int)strlen(p);
-        char line[4096];
-        if (line_len >= (int)sizeof(line)) line_len = sizeof(line) - 1;
-        memcpy(line, p, line_len);
-        line[line_len] = '\0';
-        total += tokenize(line, toks + total, max - total, line_num);
-        p += line_len;
-        if (*p == '\n') p++;
-        line_num++;
-    }
-    return total;
-}
+/* ============================================================
+   File execution & REPL
+   ============================================================ */
 
 static void run_file_with_dir(const char *path) {
     FILE *fp = fopen(path, "r");
@@ -508,7 +552,6 @@ static void run_file_with_dir(const char *path) {
     src[sz] = '\0';
     fclose(fp);
 
-    /* save and set current_dir */
     char saved_dir[512];
     strncpy(saved_dir, current_dir, sizeof(saved_dir));
     dir_of(path, current_dir, sizeof(current_dir));
@@ -518,7 +561,6 @@ static void run_file_with_dir(const char *path) {
     free(src);
     exec_line(toks, n);
 
-    /* restore current_dir */
     strncpy(current_dir, saved_dir, sizeof(current_dir));
 }
 
