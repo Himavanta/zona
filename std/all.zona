@@ -3,3 +3,4 @@ _ 引入全部标准库
 :use './logic.zona'
 :use './stack.zona'
 :use './io.zona'
+:use './test.zona'

@@ -90,4 +90,4 @@ ln -s /path/to/zona/editors/vscode ~/.vscode/extensions/zona-lang
 - `docs/spec.md` — 语言规范
 - `docs/roadmap.md` — 实现路线图
 - `examples/` — 示例程序
-- `std/` — 标准库（`all.zona` 全部引入，或按需引入 `math.zona` `io.zona`）
+- `std/` — 标准库（`all.zona` 全部引入，或按需引入 `math.zona` `io.zona` `logic.zona` `stack.zona` `test.zona`）
