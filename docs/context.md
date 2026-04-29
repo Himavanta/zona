@@ -9,9 +9,9 @@ Zona 是一个自定义 Forth 方言，用纯 C 实现。项目路径：`/Users/
 ```
 zona/
   src/
-    zona.h      — 共享前端（Token 定义、tokenizer、Word 结构、read_file）
-    zona.c      — 解释器（456 行）
-    zonac.c     — QBE 编译器（933 行）
+    zona.h      — 共享前端（Token 定义、tokenizer、Word 结构、read_file、校验函数）（233 行）
+    zona.c      — 解释器（461 行）
+    zonac.c     — QBE 编译器（1082 行）
   std/          — 标准库（math/logic/stack/io/test.zona + all.zona）
   docs/
     spec.md     — 语言规范（完整）
@@ -52,7 +52,7 @@ cc src/zonac.c -o zonac -lm             # 编译器（依赖 QBE）
 栈：`:dup :drop :swap :over :rot`
 内存：`:here :allot :alloc :free`
 IO：`:type :emit :key :fopen :fread :fwrite :fclose`
-系统：`:time :rand :exit :argc :argv :use`
+系统：`:time :rand :exit :argc :argv :use :bind`
 调试：`:stack`
 
 ## 控制流
@@ -108,10 +108,19 @@ QBE 查找：直接使用 PATH 中的 `qbe`。
 | IO | `:type :emit :key` | ✅ |
 | IO | `:fopen :fread :fwrite :fclose` | ✅ |
 | 系统 | `:time :rand :exit :use :argc :argv` | ✅ |
+| FFI | `:bind`（声明式 C 函数绑定） | ✅ |
 | 调试 | `:stack` | ✅ |
 
 所有原语与解释器完全对齐（REPL 模式除外，编译器天然不支持）。
 
-### FFI
+### FFI（`:bind`）
 
-编译产物是原生代码，直接链接 C 库：`cc output.s -o prog -lraylib -lm`。
+通过 `:bind` 声明外部 C 函数，编译后直接链接：
+
+```
+:bind myPuts 'puts' i s
+'hello' myPuts :drop
+```
+
+支持类型：`i`(int) `d`(double) `f`(float) `s`(string) `l`(long) `p`(pointer) `v`(void)。
+解释器忽略 `:bind`。详见 `docs/ffi.md`。
