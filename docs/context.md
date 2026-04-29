@@ -11,7 +11,7 @@ zona/
   src/
     zona.h      — 共享前端（Token 定义、tokenizer、Word 结构、read_file）
     zona.c      — 解释器（456 行）
-    zonac.c     — QBE 编译器（673 行）
+    zonac.c     — QBE 编译器（933 行）
   std/          — 标准库（math/logic/stack/io/test.zona + all.zona）
   docs/
     spec.md     — 语言规范（完整）
@@ -77,7 +77,7 @@ IO：`:type :emit :key :fopen :fread :fwrite :fclose`
 1. 收集所有 `:use` 文件、字定义、字符串字面量、松散代码段
 2. 生成 QBE IR → qbe 编译为汇编 → cc 链接为原生可执行文件
 
-QBE 查找顺序：`<zonac所在目录>/qbe-1.2/qbe` → PATH 中的 `qbe`。
+QBE 查找：直接使用 PATH 中的 `qbe`。
 
 ### 栈处理
 
@@ -104,13 +104,13 @@ QBE 查找顺序：`<zonac所在目录>/qbe-1.2/qbe` → PATH 中的 `qbe`。
 | 类别 | 原语 | 状态 |
 |------|------|------|
 | 栈 | `:dup :drop :swap :over :rot` | ✅ |
-| 内存 | `:here :allot` | ✅ |
-| 内存 | `:alloc :free` | ❌ 未实现 |
+| 内存 | `:here :allot :alloc :free` | ✅ |
 | IO | `:type :emit :key` | ✅ |
-| IO | `:fopen :fread :fwrite :fclose` | ❌ 未实现 |
-| 系统 | `:time :rand :exit :use` | ✅ |
-| 系统 | `:argc :argv` | ❌ 未实现 |
+| IO | `:fopen :fread :fwrite :fclose` | ✅ |
+| 系统 | `:time :rand :exit :use :argc :argv` | ✅ |
 | 调试 | `:stack` | ✅ |
+
+所有原语与解释器完全对齐（REPL 模式除外，编译器天然不支持）。
 
 ### FFI
 

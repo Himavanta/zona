@@ -9,7 +9,7 @@ cc src/zona.c -o zona -lm -lreadline    # 解释器
 cc src/zonac.c -o zonac -lm             # 编译器
 ```
 
-编译器依赖 [QBE](https://c9x.me/compile/)，需将 `qbe` 放在 `qbe-1.2/qbe`（相对于 zonac）或 PATH 中。
+编译器依赖 [QBE](https://c9x.me/compile/)，需将 `qbe` 放在 PATH 中。
 
 ## 使用
 

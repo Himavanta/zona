@@ -92,7 +92,19 @@ static void emit_runtime(void) {
     fprintf(out, "data $sp = { w 0 }\n");
     fprintf(out, "# --- memory ---\n");
     fprintf(out, "data $mem = { z 524288 }\n");  /* 65536 doubles */
-    fprintf(out, "data $here = { w 0 }\n\n");
+    fprintf(out, "data $here = { w 0 }\n");
+    fprintf(out, "# --- heap (for :alloc/:free) ---\n");
+    fprintf(out, "data $heap_ptrs = { z 8192 }\n");   /* 1024 pointers */
+    fprintf(out, "data $heap_addrs = { z 4096 }\n");   /* 1024 ints (zona addr) */
+    fprintf(out, "data $heap_sizes = { z 4096 }\n");   /* 1024 ints (size) */
+    fprintf(out, "data $heap_count = { w 0 }\n");
+    fprintf(out, "data $heap_next = { w 65536 }\n");   /* start after static mem */
+    fprintf(out, "# --- file handles ---\n");
+    fprintf(out, "data $fhandles = { z 128 }\n");      /* 16 FILE* pointers */
+    fprintf(out, "data $fhandle_count = { w 0 }\n");
+    fprintf(out, "# --- argc/argv ---\n");
+    fprintf(out, "data $prog_argc = { w 0 }\n");
+    fprintf(out, "data $prog_argv = { l 0 }\n\n");
 
     /* push: store double to stack[sp++] */
     fprintf(out, "function $zona_push(d %%v) {\n@start\n");
@@ -140,22 +152,20 @@ static void emit_runtime(void) {
     fprintf(out, "    call $printf(l $fmt_flt, ..., d %%v)\n");
     fprintf(out, "    ret\n}\n\n");
 
-    /* mem_store: val addr -- (store val at mem[addr]) */
+    /* mem_store: val addr -- (store val at mem[addr], supports heap) */
     fprintf(out, "function $zona_mem_store() {\n@start\n");
     fprintf(out, "    %%addr =d call $zona_pop()\n");
     fprintf(out, "    %%val =d call $zona_pop()\n");
-    fprintf(out, "    %%ai =l dtosi %%addr\n");
-    fprintf(out, "    %%off =l mul %%ai, 8\n");
-    fprintf(out, "    %%ptr =l add $mem, %%off\n");
+    fprintf(out, "    %%ai =w dtosi %%addr\n");
+    fprintf(out, "    %%ptr =l call $zona_mem_at(w %%ai)\n");
     fprintf(out, "    stored %%val, %%ptr\n");
     fprintf(out, "    ret\n}\n\n");
 
-    /* mem_load: addr -- val */
+    /* mem_load: addr -- val (supports heap) */
     fprintf(out, "function $zona_mem_load() {\n@start\n");
     fprintf(out, "    %%addr =d call $zona_pop()\n");
-    fprintf(out, "    %%ai =l dtosi %%addr\n");
-    fprintf(out, "    %%off =l mul %%ai, 8\n");
-    fprintf(out, "    %%ptr =l add $mem, %%off\n");
+    fprintf(out, "    %%ai =w dtosi %%addr\n");
+    fprintf(out, "    %%ptr =l call $zona_mem_at(w %%ai)\n");
     fprintf(out, "    %%v =d loadd %%ptr\n");
     fprintf(out, "    call $zona_push(d %%v)\n");
     fprintf(out, "    ret\n}\n\n");
@@ -234,6 +244,246 @@ static void emit_runtime(void) {
     fprintf(out, "    call $zona_push(d %%hd)\n");
     fprintf(out, "    %%ld =d swtof %%len\n");
     fprintf(out, "    call $zona_push(d %%ld)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* mem_at: resolve zona addr to real pointer (static or heap) */
+    fprintf(out, "function l $zona_mem_at(w %%addr) {\n@start\n");
+    fprintf(out, "    %%lim =w copy 65536\n");
+    fprintf(out, "    %%is_static =w csltw %%addr, %%lim\n");
+    fprintf(out, "    jnz %%is_static, @static, @heap\n");
+    fprintf(out, "@static\n");
+    fprintf(out, "    %%off =l extsw %%addr\n");
+    fprintf(out, "    %%off2 =l mul %%off, 8\n");
+    fprintf(out, "    %%ptr =l add $mem, %%off2\n");
+    fprintf(out, "    ret %%ptr\n");
+    fprintf(out, "@heap\n");
+    fprintf(out, "    %%hc =w loadw $heap_count\n");
+    fprintf(out, "    %%i =w copy 0\n");
+    fprintf(out, "    jmp @hcond\n");
+    fprintf(out, "@hcond\n");
+    fprintf(out, "    %%ok =w csltw %%i, %%hc\n");
+    fprintf(out, "    jnz %%ok, @hbody, @hfail\n");
+    fprintf(out, "@hbody\n");
+    fprintf(out, "    %%ai =l extsw %%i\n");
+    fprintf(out, "    %%aoff =l mul %%ai, 4\n");
+    fprintf(out, "    %%aptr =l add $heap_addrs, %%aoff\n");
+    fprintf(out, "    %%ha =w loadw %%aptr\n");
+    fprintf(out, "    %%sptr =l add $heap_sizes, %%aoff\n");
+    fprintf(out, "    %%hs =w loadw %%sptr\n");
+    fprintf(out, "    %%end =w add %%ha, %%hs\n");
+    fprintf(out, "    %%ge =w csgew %%addr, %%ha\n");
+    fprintf(out, "    %%lt =w csltw %%addr, %%end\n");
+    fprintf(out, "    %%match =w and %%ge, %%lt\n");
+    fprintf(out, "    jnz %%match, @hfound, @hnext\n");
+    fprintf(out, "@hfound\n");
+    fprintf(out, "    %%poff =l mul %%ai, 8\n");
+    fprintf(out, "    %%ppptr =l add $heap_ptrs, %%poff\n");
+    fprintf(out, "    %%base =l loadl %%ppptr\n");
+    fprintf(out, "    %%rel =w sub %%addr, %%ha\n");
+    fprintf(out, "    %%roff =l extsw %%rel\n");
+    fprintf(out, "    %%roff2 =l mul %%roff, 8\n");
+    fprintf(out, "    %%rptr =l add %%base, %%roff2\n");
+    fprintf(out, "    ret %%rptr\n");
+    fprintf(out, "@hnext\n");
+    fprintf(out, "    %%i =w add %%i, 1\n");
+    fprintf(out, "    jmp @hcond\n");
+    fprintf(out, "@hfail\n");
+    fprintf(out, "    ret 0\n");
+    fprintf(out, "}\n\n");
+
+    /* alloc: pop n, calloc, push zona addr */
+    fprintf(out, "function $zona_alloc() {\n@start\n");
+    fprintf(out, "    %%n =d call $zona_pop()\n");
+    fprintf(out, "    %%ni =w dtosi %%n\n");
+    fprintf(out, "    %%nl =l extsw %%ni\n");
+    fprintf(out, "    %%p =l call $calloc(l %%nl, l 8)\n");
+    fprintf(out, "    %%hc =w loadw $heap_count\n");
+    fprintf(out, "    %%hi =l extsw %%hc\n");
+    fprintf(out, "    %%poff =l mul %%hi, 8\n");
+    fprintf(out, "    %%ppptr =l add $heap_ptrs, %%poff\n");
+    fprintf(out, "    storel %%p, %%ppptr\n");
+    fprintf(out, "    %%aoff =l mul %%hi, 4\n");
+    fprintf(out, "    %%aptr =l add $heap_addrs, %%aoff\n");
+    fprintf(out, "    %%hn =w loadw $heap_next\n");
+    fprintf(out, "    storew %%hn, %%aptr\n");
+    fprintf(out, "    %%sptr =l add $heap_sizes, %%aoff\n");
+    fprintf(out, "    storew %%ni, %%sptr\n");
+    fprintf(out, "    %%hd =d swtof %%hn\n");
+    fprintf(out, "    call $zona_push(d %%hd)\n");
+    fprintf(out, "    %%hn2 =w add %%hn, %%ni\n");
+    fprintf(out, "    storew %%hn2, $heap_next\n");
+    fprintf(out, "    %%hc2 =w add %%hc, 1\n");
+    fprintf(out, "    storew %%hc2, $heap_count\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* free: pop addr, find and free */
+    fprintf(out, "function $zona_free() {\n@start\n");
+    fprintf(out, "    %%addr =d call $zona_pop()\n");
+    fprintf(out, "    %%ai =w dtosi %%addr\n");
+    fprintf(out, "    %%hc =w loadw $heap_count\n");
+    fprintf(out, "    %%i =w copy 0\n");
+    fprintf(out, "    jmp @fcond\n");
+    fprintf(out, "@fcond\n");
+    fprintf(out, "    %%ok =w csltw %%i, %%hc\n");
+    fprintf(out, "    jnz %%ok, @fbody, @fdone\n");
+    fprintf(out, "@fbody\n");
+    fprintf(out, "    %%il =l extsw %%i\n");
+    fprintf(out, "    %%aoff =l mul %%il, 4\n");
+    fprintf(out, "    %%aptr =l add $heap_addrs, %%aoff\n");
+    fprintf(out, "    %%ha =w loadw %%aptr\n");
+    fprintf(out, "    %%eq =w ceqw %%ai, %%ha\n");
+    fprintf(out, "    jnz %%eq, @ffound, @fnext\n");
+    fprintf(out, "@ffound\n");
+    fprintf(out, "    %%poff =l mul %%il, 8\n");
+    fprintf(out, "    %%ppptr =l add $heap_ptrs, %%poff\n");
+    fprintf(out, "    %%p =l loadl %%ppptr\n");
+    fprintf(out, "    call $free(l %%p)\n");
+    /* move last entry into this slot */
+    fprintf(out, "    %%hc2 =w sub %%hc, 1\n");
+    fprintf(out, "    storew %%hc2, $heap_count\n");
+    fprintf(out, "    %%ll =l extsw %%hc2\n");
+    fprintf(out, "    %%lpoff =l mul %%ll, 8\n");
+    fprintf(out, "    %%lpp =l add $heap_ptrs, %%lpoff\n");
+    fprintf(out, "    %%lp =l loadl %%lpp\n");
+    fprintf(out, "    storel %%lp, %%ppptr\n");
+    fprintf(out, "    %%laoff =l mul %%ll, 4\n");
+    fprintf(out, "    %%lap =l add $heap_addrs, %%laoff\n");
+    fprintf(out, "    %%la =w loadw %%lap\n");
+    fprintf(out, "    storew %%la, %%aptr\n");
+    fprintf(out, "    %%lsp =l add $heap_sizes, %%laoff\n");
+    fprintf(out, "    %%ls =w loadw %%lsp\n");
+    fprintf(out, "    %%sptr =l add $heap_sizes, %%aoff\n");
+    fprintf(out, "    storew %%ls, %%sptr\n");
+    fprintf(out, "    ret\n");
+    fprintf(out, "@fnext\n");
+    fprintf(out, "    %%i =w add %%i, 1\n");
+    fprintf(out, "    jmp @fcond\n");
+    fprintf(out, "@fdone\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* update mem_store and mem_load to use mem_at for heap support */
+    /* (already emitted above as simple versions, we'll replace them) */
+
+    /* fopen: pop path_addr path_len mode_addr mode_len, push handle */
+    fprintf(out, "function $zona_fopen() {\n@start\n");
+    fprintf(out, "    %%ml =d call $zona_pop()\n");
+    fprintf(out, "    %%ma =d call $zona_pop()\n");
+    fprintf(out, "    %%pl =d call $zona_pop()\n");
+    fprintf(out, "    %%pa =d call $zona_pop()\n");
+    fprintf(out, "    %%pai =w dtosi %%pa\n");
+    fprintf(out, "    %%pli =w dtosi %%pl\n");
+    fprintf(out, "    %%mai =w dtosi %%ma\n");
+    fprintf(out, "    %%mli =w dtosi %%ml\n");
+    /* build path string on stack */
+    fprintf(out, "    %%pbl =l extsw %%pli\n");
+    fprintf(out, "    %%pbl2 =l add %%pbl, 1\n");
+    fprintf(out, "    %%pbuf =l call $calloc(l %%pbl2, l 1)\n");
+    fprintf(out, "    %%pi =w copy 0\n");
+    fprintf(out, "    jmp @fpcond\n");
+    fprintf(out, "@fpcond\n");
+    fprintf(out, "    %%pok =w csltw %%pi, %%pli\n");
+    fprintf(out, "    jnz %%pok, @fpbody, @fpdone\n");
+    fprintf(out, "@fpbody\n");
+    fprintf(out, "    %%pidx =w add %%pai, %%pi\n");
+    fprintf(out, "    %%pptr =l call $zona_mem_at(w %%pidx)\n");
+    fprintf(out, "    %%pv =d loadd %%pptr\n");
+    fprintf(out, "    %%pc =w dtosi %%pv\n");
+    fprintf(out, "    %%pil =l extsw %%pi\n");
+    fprintf(out, "    %%pdst =l add %%pbuf, %%pil\n");
+    fprintf(out, "    storeb %%pc, %%pdst\n");
+    fprintf(out, "    %%pi =w add %%pi, 1\n");
+    fprintf(out, "    jmp @fpcond\n");
+    fprintf(out, "@fpdone\n");
+    /* build mode string */
+    fprintf(out, "    %%mbl =l extsw %%mli\n");
+    fprintf(out, "    %%mbl2 =l add %%mbl, 1\n");
+    fprintf(out, "    %%mbuf =l call $calloc(l %%mbl2, l 1)\n");
+    fprintf(out, "    %%mi =w copy 0\n");
+    fprintf(out, "    jmp @fmcond\n");
+    fprintf(out, "@fmcond\n");
+    fprintf(out, "    %%mok =w csltw %%mi, %%mli\n");
+    fprintf(out, "    jnz %%mok, @fmbody, @fmdone\n");
+    fprintf(out, "@fmbody\n");
+    fprintf(out, "    %%midx =w add %%mai, %%mi\n");
+    fprintf(out, "    %%mptr =l call $zona_mem_at(w %%midx)\n");
+    fprintf(out, "    %%mv =d loadd %%mptr\n");
+    fprintf(out, "    %%mc =w dtosi %%mv\n");
+    fprintf(out, "    %%mil =l extsw %%mi\n");
+    fprintf(out, "    %%mdst =l add %%mbuf, %%mil\n");
+    fprintf(out, "    storeb %%mc, %%mdst\n");
+    fprintf(out, "    %%mi =w add %%mi, 1\n");
+    fprintf(out, "    jmp @fmcond\n");
+    fprintf(out, "@fmdone\n");
+    fprintf(out, "    %%fp =l call $fopen(l %%pbuf, l %%mbuf)\n");
+    fprintf(out, "    call $free(l %%pbuf)\n");
+    fprintf(out, "    call $free(l %%mbuf)\n");
+    fprintf(out, "    %%hc =w loadw $fhandle_count\n");
+    fprintf(out, "    %%hl =l extsw %%hc\n");
+    fprintf(out, "    %%hoff =l mul %%hl, 8\n");
+    fprintf(out, "    %%hptr =l add $fhandles, %%hoff\n");
+    fprintf(out, "    storel %%fp, %%hptr\n");
+    fprintf(out, "    %%hd =d swtof %%hc\n");
+    fprintf(out, "    call $zona_push(d %%hd)\n");
+    fprintf(out, "    %%hc2 =w add %%hc, 1\n");
+    fprintf(out, "    storew %%hc2, $fhandle_count\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* fclose: pop handle, close */
+    fprintf(out, "function $zona_fclose() {\n@start\n");
+    fprintf(out, "    %%h =d call $zona_pop()\n");
+    fprintf(out, "    %%hi =w dtosi %%h\n");
+    fprintf(out, "    %%hl =l extsw %%hi\n");
+    fprintf(out, "    %%hoff =l mul %%hl, 8\n");
+    fprintf(out, "    %%hptr =l add $fhandles, %%hoff\n");
+    fprintf(out, "    %%fp =l loadl %%hptr\n");
+    fprintf(out, "    call $fclose(l %%fp)\n");
+    fprintf(out, "    storel 0, %%hptr\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* fread: pop handle, push char (or -1 on EOF) */
+    fprintf(out, "function $zona_fread() {\n@start\n");
+    fprintf(out, "    %%h =d call $zona_pop()\n");
+    fprintf(out, "    %%hi =w dtosi %%h\n");
+    fprintf(out, "    %%hl =l extsw %%hi\n");
+    fprintf(out, "    %%hoff =l mul %%hl, 8\n");
+    fprintf(out, "    %%hptr =l add $fhandles, %%hoff\n");
+    fprintf(out, "    %%fp =l loadl %%hptr\n");
+    fprintf(out, "    %%c =w call $fgetc(l %%fp)\n");
+    fprintf(out, "    %%cd =d swtof %%c\n");
+    fprintf(out, "    call $zona_push(d %%cd)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* fwrite: pop c handle, write */
+    fprintf(out, "function $zona_fwrite() {\n@start\n");
+    fprintf(out, "    %%h =d call $zona_pop()\n");
+    fprintf(out, "    %%c =d call $zona_pop()\n");
+    fprintf(out, "    %%hi =w dtosi %%h\n");
+    fprintf(out, "    %%ci =w dtosi %%c\n");
+    fprintf(out, "    %%hl =l extsw %%hi\n");
+    fprintf(out, "    %%hoff =l mul %%hl, 8\n");
+    fprintf(out, "    %%hptr =l add $fhandles, %%hoff\n");
+    fprintf(out, "    %%fp =l loadl %%hptr\n");
+    fprintf(out, "    call $fputc(w %%ci, l %%fp)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* argc: push prog_argc */
+    fprintf(out, "function $zona_argc() {\n@start\n");
+    fprintf(out, "    %%n =w loadw $prog_argc\n");
+    fprintf(out, "    %%nd =d swtof %%n\n");
+    fprintf(out, "    call $zona_push(d %%nd)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* argv: pop index, store string into mem, push addr len */
+    fprintf(out, "function $zona_argv() {\n@start\n");
+    fprintf(out, "    %%idx =d call $zona_pop()\n");
+    fprintf(out, "    %%ii =w dtosi %%idx\n");
+    fprintf(out, "    %%il =l extsw %%ii\n");
+    fprintf(out, "    %%aoff =l mul %%il, 8\n");
+    fprintf(out, "    %%av =l loadl $prog_argv\n");
+    fprintf(out, "    %%aptr =l add %%av, %%aoff\n");
+    fprintf(out, "    %%str =l loadl %%aptr\n");
+    fprintf(out, "    %%len =w call $strlen(l %%str)\n");
+    fprintf(out, "    call $zona_store_str(l %%str, w %%len)\n");
     fprintf(out, "    ret\n}\n\n");
 
     /* stack debug: print <sp> val val ... */
@@ -426,6 +676,10 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    call $zona_here()\n");
         } else if (strcmp(t->text, ":allot") == 0) {
             fprintf(out, "    call $zona_allot()\n");
+        } else if (strcmp(t->text, ":alloc") == 0) {
+            fprintf(out, "    call $zona_alloc()\n");
+        } else if (strcmp(t->text, ":free") == 0) {
+            fprintf(out, "    call $zona_free()\n");
         } else if (strcmp(t->text, ":type") == 0) {
             fprintf(out, "    call $zona_type()\n");
         } else if (strcmp(t->text, ":emit") == 0) {
@@ -438,6 +692,18 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
         } else if (strcmp(t->text, ":stack") == 0) {
             fprintf(out, "    call $zona_stack()\n");
+        } else if (strcmp(t->text, ":fopen") == 0) {
+            fprintf(out, "    call $zona_fopen()\n");
+        } else if (strcmp(t->text, ":fclose") == 0) {
+            fprintf(out, "    call $zona_fclose()\n");
+        } else if (strcmp(t->text, ":fread") == 0) {
+            fprintf(out, "    call $zona_fread()\n");
+        } else if (strcmp(t->text, ":fwrite") == 0) {
+            fprintf(out, "    call $zona_fwrite()\n");
+        } else if (strcmp(t->text, ":argc") == 0) {
+            fprintf(out, "    call $zona_argc()\n");
+        } else if (strcmp(t->text, ":argv") == 0) {
+            fprintf(out, "    call $zona_argv()\n");
         } else if (strcmp(t->text, ":exit") == 0) {
             r = newtmp(); int ri = newtmp();
             fprintf(out, "    %%t%d =d call $zona_pop()\n", r);
@@ -594,7 +860,13 @@ static void emit_words(void) {
 }
 
 static void emit_main(void) {
-    fprintf(out, "export function w $main() {\n@Lentry\n    jmp @Lstart\n@Lstart\n");
+    fprintf(out, "export function w $main(w %%argc, l %%argv) {\n@Lentry\n");
+    /* store argc-1 and argv+8 (skip program name) */
+    fprintf(out, "    %%ac =w sub %%argc, 1\n");
+    fprintf(out, "    storew %%ac, $prog_argc\n");
+    fprintf(out, "    %%av =l add %%argv, 8\n");
+    fprintf(out, "    storel %%av, $prog_argv\n");
+    fprintf(out, "    jmp @Lstart\n@Lstart\n");
     for (int i = 0; i < main_seg_count; i++)
         compile_body(main_segs[i].toks, main_segs[i].n, 0);
     fprintf(out, "    ret 0\n}\n");
@@ -646,20 +918,8 @@ int main(int argc, char **argv) {
     /* pass 3: qbe -> asm -> executable */
     char cmd[2048];
 
-    /* try to find qbe: next to zonac, or in PATH */
-    const char *qbe = "qbe";
-    char qbe_buf[512];
-    /* try relative to the zonac binary's directory */
-    {
-        char self[512] = {0};
-        strncpy(self, argv[0], sizeof(self) - 1);
-        char *sl = strrchr(self, '/');
-        if (sl) { *sl = '\0'; snprintf(qbe_buf, sizeof(qbe_buf), "%s/qbe-1.2/qbe", self); }
-        else snprintf(qbe_buf, sizeof(qbe_buf), "qbe-1.2/qbe");
-        if (access(qbe_buf, X_OK) == 0) qbe = qbe_buf;
-    }
-
-    snprintf(cmd, sizeof(cmd), "%s %s > %s", qbe, ssa_path, s_path);
+    /* qbe from PATH */
+    snprintf(cmd, sizeof(cmd), "qbe %s > %s", ssa_path, s_path);
     if (system(cmd) != 0) { fprintf(stderr, "qbe failed\n"); return 1; }
 
     snprintf(cmd, sizeof(cmd), "cc %s -o %s -lm", s_path, output);
