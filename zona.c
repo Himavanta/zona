@@ -177,6 +177,7 @@ static void exec_prim(const char *name) {
         int len = (int)pop(), addr = (int)pop();
         for (int i = 0; i < len; i++) putchar((int)mem[addr + i]);
     }
+    else if (strcmp(name, ":emit") == 0) { putchar((int)pop()); }
     else fprintf(stderr, "unknown primitive: %s\n", name);
 }
 

@@ -47,4 +47,4 @@ _ GCD
 17 13 gcd :drop .
 
 _ 字符串
-'hello zona!' :type
+'hello zona!' :type 10 :emit
