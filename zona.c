@@ -12,18 +12,20 @@ typedef struct {
     enum TokenType type;
     char text[256];
     double num;
+    int line;
 } Token;
 
 /* ---- Tokenizer ---- */
 static const char *SYMS = "@;$?!~&#+-*/%^><=._'";
 
-static int tokenize(const char *line, Token *toks, int max) {
+static int tokenize(const char *line, Token *toks, int max, int line_num) {
     int n = 0;
     const char *p = line;
     while (*p && n < max) {
         while (*p == ' ' || *p == '\t') p++;
         if (!*p || *p == '\n') break;
         if (*p == '_') break;
+        toks[n].line = line_num;
 
         if (*p == '\'') {
             p++;
@@ -100,17 +102,18 @@ static int tokenize(const char *line, Token *toks, int max) {
 #define STACK_MAX 256
 static double stack[STACK_MAX];
 static int sp = 0;
+static int cur_line = 0; /* current executing line for error messages */
 
 static void push(double v) {
-    if (sp >= STACK_MAX) { fprintf(stderr, "stack overflow\n"); return; }
+    if (sp >= STACK_MAX) { fprintf(stderr, "line %d: stack overflow\n", cur_line); return; }
     stack[sp++] = v;
 }
 static double pop(void) {
-    if (sp <= 0) { fprintf(stderr, "stack underflow\n"); return 0; }
+    if (sp <= 0) { fprintf(stderr, "line %d: stack underflow\n", cur_line); return 0; }
     return stack[--sp];
 }
 static double peek(void) {
-    if (sp <= 0) { fprintf(stderr, "stack underflow\n"); return 0; }
+    if (sp <= 0) { fprintf(stderr, "line %d: stack underflow\n", cur_line); return 0; }
     return stack[sp - 1];
 }
 
@@ -177,7 +180,7 @@ static void exec_prim(const char *name) {
     else if (strcmp(name, ":here") == 0) push(here);
     else if (strcmp(name, ":allot") == 0) {
         int n = (int)pop();
-        if (here + n > MEM_CELLS) fprintf(stderr, "out of memory\n");
+        if (here + n > MEM_CELLS) fprintf(stderr, "line %d: out of memory\n", cur_line);
         else here += n;
     }
     else if (strcmp(name, ":type") == 0) {
@@ -196,9 +199,9 @@ static void exec_prim(const char *name) {
     }
     else if (strcmp(name, ":alloc") == 0) {
         int n = (int)pop();
-        if (heap_count >= HEAP_MAX) { fprintf(stderr, "heap full\n"); push(0); return; }
+        if (heap_count >= HEAP_MAX) { fprintf(stderr, "line %d: heap full\n", cur_line); push(0); return; }
         double *p = calloc(n, sizeof(double));
-        if (!p) { fprintf(stderr, "alloc failed\n"); push(0); return; }
+        if (!p) { fprintf(stderr, "line %d: alloc failed\n", cur_line); push(0); return; }
         int addr = heap_next;
         heap[heap_count].ptr = p;
         heap[heap_count].size = n;
@@ -216,9 +219,9 @@ static void exec_prim(const char *name) {
                 return;
             }
         }
-        fprintf(stderr, "bad free: %d\n", addr);
+        fprintf(stderr, "line %d: bad free: %d\n", cur_line, addr);
     }
-    else fprintf(stderr, "unknown primitive: %s\n", name);
+    else fprintf(stderr, "line %d: unknown primitive: %s\n", cur_line, name);
 }
 
 static void exec_sym(char c) {
@@ -228,7 +231,7 @@ static void exec_sym(char c) {
         case '-': b = pop(); a = pop(); push(a - b); break;
         case '*': b = pop(); a = pop(); push(a * b); break;
         case '/': b = pop(); a = pop();
-            if (b == 0) { fprintf(stderr, "division by zero\n"); break; }
+            if (b == 0) { fprintf(stderr, "line %d: division by zero\n", cur_line); break; }
             push(a / b); break;
         case '%': b = pop(); a = pop(); push(fmod(a, b)); break;
         case '^': b = pop(); a = pop(); push(pow(a, b)); break;
@@ -250,7 +253,7 @@ static void exec_sym(char c) {
                         push(heap[i].ptr[addr - heap[i].addr]); found = 1; break;
                     }
                 }
-                if (!found) { fprintf(stderr, "bad address: %d\n", addr); push(0); }
+                if (!found) { fprintf(stderr, "line %d: bad address: %d\n", cur_line, addr); push(0); }
             } break; }
         case '#': { int addr = (int)pop(); double val = pop();
             if (addr >= 0 && addr < MEM_CELLS) { mem[addr] = val; }
@@ -261,7 +264,7 @@ static void exec_sym(char c) {
                         heap[i].ptr[addr - heap[i].addr] = val; found = 1; break;
                     }
                 }
-                if (!found) fprintf(stderr, "bad address: %d\n", addr);
+                if (!found) fprintf(stderr, "line %d: bad address: %d\n", cur_line, addr);
             } break; }
         default: break;
     }
@@ -283,7 +286,7 @@ static enum ExecResult exec_one(Token *t) {
         case T_WORD: {
             Word *w = find_word(t->text);
             if (w) exec_body(w->body, w->len);
-            else fprintf(stderr, "unknown word: %s\n", t->text);
+            else fprintf(stderr, "line %d: unknown word: %s\n", cur_line, t->text);
             return EX_OK;
         }
     }
@@ -291,12 +294,13 @@ static enum ExecResult exec_one(Token *t) {
 }
 
 static void exec_body(Token *toks, int n) {
-    if (rsp >= RSTACK_MAX) { fprintf(stderr, "return stack overflow\n"); return; }
+    if (rsp >= RSTACK_MAX) { fprintf(stderr, "line %d: return stack overflow\n", cur_line); return; }
     Frame *f = &rstack[rsp++];
     f->toks = toks; f->len = n; f->ip = 0;
 
     while (f->ip < f->len) {
         Token *t = &f->toks[f->ip];
+        cur_line = t->line;
 
         /* handle ? inline for correct $ and ~ behavior */
         if (t->type == T_SYM && t->text[0] == '?') {
@@ -421,7 +425,7 @@ static void exec_line(Token *toks, int n) {
 #define TOK_MAX 4096
 
 static int tokenize_all(const char *src, Token *toks, int max) {
-    int total = 0;
+    int total = 0, line_num = 1;
     const char *p = src;
     while (*p && total < max) {
         const char *eol = strchr(p, '\n');
@@ -430,9 +434,10 @@ static int tokenize_all(const char *src, Token *toks, int max) {
         if (line_len >= (int)sizeof(line)) line_len = sizeof(line) - 1;
         memcpy(line, p, line_len);
         line[line_len] = '\0';
-        total += tokenize(line, toks + total, max - total);
+        total += tokenize(line, toks + total, max - total, line_num);
         p += line_len;
         if (*p == '\n') p++;
+        line_num++;
     }
     return total;
 }
@@ -479,9 +484,10 @@ static void run_file(const char *path) {
 static void repl(void) {
     char line[4096];
     Token toks[TOK_MAX];
+    int line_num = 1;
     printf("zona> ");
     while (fgets(line, sizeof(line), stdin)) {
-        int n = tokenize(line, toks, TOK_MAX);
+        int n = tokenize(line, toks, TOK_MAX, line_num++);
         exec_line(toks, n);
         printf("zona> ");
     }
