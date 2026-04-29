@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <unistd.h>
 
 /* ---- Token ---- */
 enum TokenType { T_NUM, T_STR, T_SYM, T_PRIM, T_WORD };
@@ -283,10 +284,66 @@ done:
     rsp--;
 }
 
-/* Top-level: handles @ definitions and executes top-level code */
+/* ---- File tracking (for :use) ---- */
+#define USE_MAX 64
+static char used_files[USE_MAX][512];
+static int used_count = 0;
+static char current_dir[512] = ".";
+
+static int already_used(const char *path) {
+    for (int i = 0; i < used_count; i++)
+        if (strcmp(used_files[i], path) == 0) return 1;
+    return 0;
+}
+
+static void resolve_path(const char *base_dir, const char *rel, char *out, int out_size) {
+    if (rel[0] == '/') { snprintf(out, out_size, "%s", rel); return; }
+    snprintf(out, out_size, "%s/%s", base_dir, rel);
+    char *p;
+    while ((p = strstr(out, "/./")) != NULL)
+        memmove(p, p + 2, strlen(p + 2) + 1);
+    while ((p = strstr(out, "/../")) != NULL) {
+        char *prev = p - 1;
+        while (prev > out && *prev != '/') prev--;
+        if (prev >= out) memmove(prev, p + 3, strlen(p + 3) + 1);
+        else break;
+    }
+}
+
+static void dir_of(const char *path, char *out, int out_size) {
+    strncpy(out, path, out_size - 1);
+    out[out_size - 1] = '\0';
+    char *last = strrchr(out, '/');
+    if (last) *last = '\0';
+    else strcpy(out, ".");
+}
+
+static void run_file_with_dir(const char *path);
+
+/* Top-level: handles :use, @ definitions, and executes top-level code */
 static void exec_line(Token *toks, int n) {
     int i = 0;
     while (i < n) {
+        /* :use 'path' */
+        if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0) {
+            i++;
+            if (i >= n || toks[i].type != T_STR) {
+                fprintf(stderr, ":use must be followed by a string path\n"); return;
+            }
+            const char *rel = toks[i].text;
+            if (!(rel[0] == '.' && (rel[1] == '/' || (rel[1] == '.' && rel[2] == '/')))) {
+                fprintf(stderr, ":use path must start with ./ or ../\n"); return;
+            }
+            char resolved[512];
+            resolve_path(current_dir, rel, resolved, sizeof(resolved));
+            if (!already_used(resolved)) {
+                if (used_count >= USE_MAX) { fprintf(stderr, "too many :use files\n"); return; }
+                strncpy(used_files[used_count++], resolved, 511);
+                run_file_with_dir(resolved);
+            }
+            i++;
+            continue;
+        }
         if (toks[i].type == T_SYM && toks[i].text[0] == '@') {
             i++;
             if (i >= n || toks[i].type != T_WORD) {
@@ -334,11 +391,9 @@ static int tokenize_all(const char *src, Token *toks, int max) {
     return total;
 }
 
-/* ---- Main ---- */
-
-static void run_file(const char *path) {
+static void run_file_with_dir(const char *path) {
     FILE *fp = fopen(path, "r");
-    if (!fp) { fprintf(stderr, "cannot open: %s\n", path); exit(1); }
+    if (!fp) { fprintf(stderr, "cannot open: %s\n", path); return; }
     fseek(fp, 0, SEEK_END);
     long sz = ftell(fp);
     fseek(fp, 0, SEEK_SET);
@@ -347,10 +402,32 @@ static void run_file(const char *path) {
     src[sz] = '\0';
     fclose(fp);
 
+    /* save and set current_dir */
+    char saved_dir[512];
+    strncpy(saved_dir, current_dir, sizeof(saved_dir));
+    dir_of(path, current_dir, sizeof(current_dir));
+
     Token toks[TOK_MAX];
     int n = tokenize_all(src, toks, TOK_MAX);
     free(src);
     exec_line(toks, n);
+
+    /* restore current_dir */
+    strncpy(current_dir, saved_dir, sizeof(current_dir));
+}
+
+static void run_file(const char *path) {
+    char resolved[512];
+    if (path[0] == '/') {
+        strncpy(resolved, path, sizeof(resolved));
+    } else {
+        char cwd[512];
+        if (getcwd(cwd, sizeof(cwd)))
+            snprintf(resolved, sizeof(resolved), "%s/%s", cwd, path);
+        else
+            strncpy(resolved, path, sizeof(resolved));
+    }
+    run_file_with_dir(resolved);
 }
 
 static void repl(void) {
