@@ -178,6 +178,15 @@ static void exec_prim(const char *name) {
         for (int i = 0; i < len; i++) putchar((int)mem[addr + i]);
     }
     else if (strcmp(name, ":emit") == 0) { putchar((int)pop()); }
+    else if (strcmp(name, ":stack") == 0) {
+        printf("<%d>", sp);
+        for (int i = 0; i < sp; i++) {
+            double v = stack[i];
+            if (v == (long)v) printf(" %ld", (long)v);
+            else printf(" %g", v);
+        }
+        putchar('\n');
+    }
     else fprintf(stderr, "unknown primitive: %s\n", name);
 }
 
