@@ -25,10 +25,10 @@ cc game.s -o game -lraylib -lm
 
 编译器遇到 `:bind` 声明时记录到 extern 表。遇到调用时：
 
-1. 按参数类型从右到左 pop（`s` 类型 pop 两个值：len 和 addr，转成 C 字符串）
+1. 按参数类型从右到左 pop（`char*` 类型 pop 两个值：len 和 addr，转成 C 字符串）
 2. 按类型生成 QBE 转换指令（`dtosi`/`extsw`/`truncd` 等）
 3. 生成 `call $cName(类型 参数, ...)`
-4. 返回类型非 `v` 时，转为 double 压栈
+4. 返回类型非 `void` 时，转为 double 压栈
 
 解释器忽略 `:bind`（跳过同行所有词元）。
 
@@ -48,35 +48,39 @@ cc game.s -o game -lraylib -lm
 
 `:peek8/32/64/d` 和 `:poke8/32/64/d` 操作真实 C 内存地址，用于读写 C 指针指向的内存。解锁了指针操作和手动构造结构体的能力。
 
+### zona 中的指针
+
+zona 栈上一切都是 double。指针就是一个数字（内存地址），没有任何标记区分"这是指针"还是"这是值"。区分发生在 `:bind` 的签名里——签名决定 QBE 怎么传递这个数字。zona 不需要"指针类型"，因为指针和整数在二进制层面就是同一个东西。
+
 ## 实现路径
 
 ```
 第一步（已完成）：:bind 基本类型
 第二步（已完成）：C 内存读写原语（:peek8/32/64/d :poke8/32/64/d）
-第三步（已完成）：C 字符串返回（s 返回类型自动双向转换）
-第四步（待定）：结构体
+第三步（已完成）：C 字符串返回（char* 返回类型自动双向转换）
+第四步（设计中）：结构体（:struct + 构造器）
 第五步（远期）：回调
 ```
 
 当前 FFI 能力与 Gforth（最主流的 Forth 实现）的 FFI 处于同一水平。
 
-## 待定：结构体
+## 设计中：结构体
+
+### 本质
+
+C 的结构体就是一块连续内存，按顺序放了几个值。比如 `Color { r, g, b, a }` 就是 4 个字节紧挨着。C 里写 `color.r` 就是"读这块内存的第 0 个字节"。在 ABI 层面，结构体不关心名字，只关心字段类型和顺序——布局一致的结构体可以互相替代。
 
 ### 现状
 
 有了 peek/poke，结构体**已经能用**，只是手动操作繁琐：
 
 ```
-:bind cmalloc 'malloc' l l
-:bind cfree 'free' v l
-
-_ 手动构造 Color { r=255, g=0, b=0, a=255 }
-4 cmalloc
-255 :over :poke8         _ r at offset 0
-0 :over 1 + :poke8       _ g at offset 1
-0 :over 2 + :poke8       _ b at offset 2
-255 :over 3 + :poke8     _ a at offset 3
-_ 栈上现在是指向 Color 数据的指针
+:bind cmalloc 'malloc' void* long
+4 cmalloc                  _ 分配 4 字节
+255 :over :poke8           _ r at offset 0
+0 :over 1 + :poke8         _ g at offset 1
+0 :over 2 + :poke8         _ b at offset 2
+255 :over 3 + :poke8       _ a at offset 3
 ```
 
 这和传统 Forth（Gforth、SwiftForth）处理结构体的方式一致——手动算偏移量 + 内存读写。
@@ -85,61 +89,92 @@ _ 栈上现在是指向 Color 数据的指针
 
 **能力层（已有）**：malloc → poke 写字段 → 传指针给 C → peek 读返回的结构体字段。能做任何事。
 
-**便利层（缺）**：用户需要自己算偏移量、知道字段大小。比如 `Rectangle { float x, y, w, h }` 用户得知道 x 在偏移 0、y 在偏移 4、每个 float 占 4 字节。
+**便利层（缺）**：用户需要自己算偏移量、知道字段大小。
 
-### 按值传递 vs 按指针传递
-
-- **按指针传**（简单）：zona 分配内存 → poke 写字段 → 传指针。现在就能做。
-- **按值传**（难）：C 调用约定要求把结构体字节放到寄存器或栈上。QBE 能处理，但需要 `type :Name = { ... }` 类型定义，且 `:bind` 签名中需要引用结构体类型。
-
-按值传的实际流程也得先构造到内存里，QBE 帮做最后的拆包。
-
-### 曾考虑的 `:struct` 语法
+### `:struct` 语法
 
 ```
-:struct Color 'Color' bbbb          _ 4 个 byte
-:struct Vec2 'Vector2' ff           _ 2 个 float
-:struct Rect 'Rectangle' ffff       _ 4 个 float
+:struct Color char char char char
+:struct Rect float float float float
 ```
 
-编译器据此生成 QBE `type` 定义。新的多词元 `:bind` 语法天然支持结构体名：
+- 只需要一个名字，不需要像 `:bind` 那样两个名字
+- 因为结构体在 ABI 层面只是内存布局，C 不关心 zona 这边叫什么
+- 字段类型使用 C 类型名，和 `:bind` 保持一致
+- 行格式规则同 `:bind`：行首、独占一行、不在 `@ ;` 内部
+
+### zona 结构体 vs C 结构体
+
+`:struct` 同时解决两个需求：
+
+- **绑定 C 的 struct**：告诉编译器 C 结构体的内存布局，用于 FFI
+- **声明 zona 的结构体**：zona 程序内部的数据组织
+
+两者本质相同——都是"一块内存 + 按偏移量读写字段"。统一用一个 `:struct`，不区分。zona 的栈上全是 double，结构体本质上就是"一块内存 + 按偏移量读写字段"，和 C 结构体在 zona 里的操作方式完全一样。
+
+### 两种传递方式（都支持，不冲突）
+
+**方案 A：`:bind` 签名里写结构体名，自动打包**
 
 ```
+:struct Color char char char char
 :bind drawCircle 'DrawCircle' void int int float Color
-:bind drawRect 'DrawRectangleRec' void Rect Color
+
+255 0 0 255 400 300 50.0 drawCircle
+_ 编译器看到签名里的 Color，自动从栈上 pop 4 个值打包
 ```
 
-每个类型一个词元，结构体名和基本类型名视觉上统一。
+- 栈上的值直接消耗，传给 C，结束
+- 没有中间产物，不需要释放
+- 简洁，适合一次性使用
+- 实现较复杂：需要生成 QBE `type` 定义 + 处理调用约定
 
-**仍未解决的问题**：
-
-1. **zona 栈上怎么表示结构体？** 是多个独立值（r g b a 分别压栈），还是一个指针？如果是多个值，编译器需要知道字段数量来决定 pop 几次。
-
-2. **`:struct` 的字段类型也应该用 C 类型名**：`char char char char` 而不是 `bbbb`，和 `:bind` 保持一致。
-
-### 替代方案：zona 标准库封装
-
-不加新语法，用 zona 字封装偏移量计算：
+**方案 B：构造器，显式打包成指针**
 
 ```
-_ 在 zona 标准库中定义
-@ mkcolor        _ ( r g b a -- ptr )
-    4 cmalloc
-    :over 3 + :poke8
-    :over 2 + :poke8
-    :over 1 + :poke8
-    :over :poke8
-;
+:struct Color char char char char
+:bind drawCircle 'DrawCircle' void int int float void*
 
-_ 使用
-255 0 0 255 mkcolor    _ 栈上得到 Color 指针
+255 0 0 255 Color              _ 从栈上取 4 个值，打包，压回指针
+400 300 50.0 drawCircle        _ 传指针给 C
 ```
 
-优点：零语法扩展。缺点：不支持按值传递，只能传指针。
+- `Color` 像字一样调用，是 `:struct` 声明的副产品
+- 编译器自动生成构造函数：pop 字段值 → 栈分配内存 → poke → push 指针
+- `:bind` 签名里写 `void*`，不需要特殊处理
+- 更灵活：指针可以存起来复用、传给多个函数
+- 实现简单：只需要生成 alloc + poke 代码
 
-### 结论
+### 构造器的内存管理
 
-`:struct` 的语法设计还需要想清楚，特别是签名引用和栈表示问题。当前用 peek/poke 手动方式可以覆盖所有场景，建议先用起来，遇到真正的痛点再设计语法糖。
+构造器默认使用**栈分配**（QBE 的 `alloc4`），不是 malloc：
+
+```
+@ draw
+    255 0 0 255 Color      _ 栈分配，得到指针
+    400 300 50.0 drawCircle _ 传给 C
+;                           _ 函数返回，内存自动释放
+```
+
+- 不需要手动释放，不需要新的释放原语
+- 生命周期：当前 zona 字返回时自动释放
+- 适合绝大多数场景（临时构造传给 C）
+
+如果需要长期持有结构体（跨函数使用），用现有的 `cmalloc` + `poke` 手动构造，用完 `cfree` 手动释放。这些原语已经有了，不需要新机制。
+
+### 构造器不是原语
+
+`Color` 不是新原语，是编译器根据 `:struct` 声明自动生成的内部函数。编译器遇到 T_WORD 时，先查字典，再查 extern 表，再查 struct 表。命中 struct 时调用生成的构造函数。
+
+### 实现优先级
+
+先做方案 B（构造器），因为：
+1. 不涉及 QBE 类型定义
+2. `:bind` 签名不需要改（用 `void*`）
+3. 栈分配自动释放，零负担
+4. 覆盖大部分实际场景
+
+方案 A（自动打包 + 按值传递）后续按需添加。
 
 ### 其他语言的参考
 
@@ -147,7 +182,7 @@ _ 使用
 - **SwiftForth**：类似 Gforth，手动布局
 - **Factor**（Forth 的现代后继者）：有完整的结构体声明和按值传递，但 Factor 有完整的类型系统和垃圾回收器，和传统 Forth 差距很大
 
-## 待定：回调函数
+## 远期：回调函数
 
 ### 现状
 
@@ -163,7 +198,7 @@ zona 的字（`@ cmp ... ;`）编译后是 QBE 函数，理论上有地址，但
 
 ### 实际影响
 
-有限。需要回调的场景和不需要回调的替代方案：
+有限。在 FFI 领域，回调不是核心需求。需要回调的场景和替代方案：
 
 | 需要回调的 | 替代方案 |
 |-----------|---------|
@@ -178,7 +213,7 @@ zona 的字（`@ cmp ... ;`）编译后是 QBE 函数，理论上有地址，但
 
 ### 结论
 
-暂不设计。优先级最低。
+暂不设计，暂不实现。优先级最低。但 `:bind` 的类型系统中预留了函数指针的位置——当前可以用 `void*` 传递函数指针的数值，只是 zona 无法生成有效的函数指针。
 
 ## 设计讨论记录
 
@@ -190,10 +225,13 @@ zona 的字（`@ cmp ... ;`）编译后是 QBE 函数，理论上有地址，但
 
 最终决定：QBE 编译后端 + `:bind` 声明式 FFI。零额外依赖。
 
+### 类型系统演进
+
+1. 最初设计：单字符类型（`i d f s l p v`），紧凑但需要记忆映射表
+2. 改为 C 标准类型名（`int double float char* void*` 等），零学习成本
+3. 每个类型一个词元，`*` 在 `:bind` 行内自动和前一个词合并
+4. signed/unsigned 在 FFI 层面不影响 ABI，不区分。`const` 也忽略。`size_t` 等同 `long`
+
 ### 现有原语与 FFI 的关系
 
 `:time` `:rand` `:fopen` 等是 C 标准库的薄封装，理论上有 FFI 后可替代。但保留为内置原语更好：性能更高、使用更简单、无外部依赖。FFI 是补充而非替代。
-
-### `p` 和 `l` 的关系
-
-两者在 QBE 层面都是 `l`（64 位）。`p` 语义是"指针"，`l` 是"大整数"。当前实现无区别。`p` 返回的值可以传给 `:peek`/`:poke`。

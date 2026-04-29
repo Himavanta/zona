@@ -133,5 +133,6 @@ ln -s /path/to/zona/editors/vscode ~/.vscode/extensions/zona-lang
 - `docs/roadmap.md` — 实现路线图
 - `docs/context.md` — 项目上下文与实现细节
 - `docs/ffi.md` — FFI 讨论记录
+- `docs/perf.md` — 性能基准测试
 - `examples/` — 示例程序
 - `std/` — 标准库（`all.zona` 全部引入，或按需引入 `math.zona` `io.zona` `logic.zona` `stack.zona` `test.zona`）
