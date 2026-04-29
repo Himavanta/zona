@@ -1,0 +1,60 @@
+{
+  "scopeName": "source.zona",
+  "name": "Zona",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#definition" },
+    { "include": "#control" },
+    { "include": "#primitive" },
+    { "include": "#use" },
+    { "include": "#operator" },
+    { "include": "#memory" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "_.*$",
+      "name": "comment.line.zona"
+    },
+    "string": {
+      "begin": "'",
+      "end": "'",
+      "name": "string.quoted.single.zona",
+      "patterns": [{
+        "match": "\\\\.",
+        "name": "constant.character.escape.zona"
+      }]
+    },
+    "number": {
+      "match": "(?<=\\s|^)-?[0-9]+(\\.[0-9]+)?(?=\\s|$)",
+      "name": "constant.numeric.zona"
+    },
+    "definition": {
+      "patterns": [
+        { "match": "@", "name": "keyword.control.define.zona" },
+        { "match": ";", "name": "keyword.control.end.zona" }
+      ]
+    },
+    "control": {
+      "match": "[?!~$]",
+      "name": "keyword.control.zona"
+    },
+    "primitive": {
+      "match": ":[a-z]+",
+      "name": "support.function.builtin.zona"
+    },
+    "use": {
+      "match": ":use",
+      "name": "keyword.control.import.zona"
+    },
+    "operator": {
+      "match": "[+\\-*/%^><=.]",
+      "name": "keyword.operator.zona"
+    },
+    "memory": {
+      "match": "[&#]",
+      "name": "keyword.operator.memory.zona"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "zona-lang",
+  "displayName": "Zona Language",
+  "description": "Syntax highlighting for the Zona programming language",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.60.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [{
+      "id": "zona",
+      "aliases": ["Zona", "zona"],
+      "extensions": [".zona"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "zona",
+      "scopeName": "source.zona",
+      "path": "./syntaxes/zona.tmLanguage.json"
+    }]
+  }
+}
