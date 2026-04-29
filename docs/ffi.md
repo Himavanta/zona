@@ -35,8 +35,9 @@
 
 ## 结论
 
-- 短期：方案 C，直接链接 raylib，加图形原语
-- 长期：方案 A，通用 FFI，等需要接入多种 C 库时再做
+- ~~短期：方案 C，直接链接 raylib，加图形原语~~
+- ~~长期：方案 A，通用 FFI~~
+- **最终决定：做 QBE 编译后端，FFI 免费获得**。编译后的 zona 程序生成原生代码，链接时直接 `cc zona_output.s -o prog -lraylib`，和 C 调 C 一样自然。不需要 dlopen，不需要 libffi，零额外依赖。
 
 ## 可能的 raylib 原语设计
 
