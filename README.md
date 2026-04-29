@@ -1,0 +1,1 @@
+cc zona.c -o zona -lm

@@ -129,6 +129,21 @@ static int tokenize(const char *line, Token *toks, int max) {
     return n;
 }
 
+/* ---- String storage (temporary, until memory system) ---- */
+
+#define STR_POOL_SIZE 256
+#define STR_MAX_LEN 256
+static char str_pool[STR_POOL_SIZE][STR_MAX_LEN];
+static int str_count = 0;
+
+/* Store a string, return its index (encoded as negative to distinguish from numbers) */
+static int store_str(const char *s) {
+    if (str_count >= STR_POOL_SIZE) { fprintf(stderr, "string pool full\n"); return 0; }
+    strncpy(str_pool[str_count], s, STR_MAX_LEN - 1);
+    str_pool[str_count][STR_MAX_LEN - 1] = '\0';
+    return -(str_count++ + 1); /* -1, -2, -3 ... */
+}
+
 /* ---- Data stack ---- */
 
 #define STACK_MAX 256
@@ -162,8 +177,7 @@ static void exec(Token *toks, int n) {
         }
 
         if (t->type == T_STR) {
-            /* strings: for now just print, full impl later */
-            printf("%s", t->text);
+            push(store_str(t->text));
             continue;
         }
 
@@ -184,8 +198,14 @@ static void exec(Token *toks, int n) {
                 case '=': b = pop(); a = pop(); push(a == b ? 1 : 0); break;
                 case '.': {
                     double v = pop();
-                    if (v == (long)v) printf("%ld", (long)v);
-                    else printf("%g", v);
+                    int iv = (int)v;
+                    if (iv < 0 && iv >= -str_count) {
+                        printf("%s\n", str_pool[-(iv + 1)]);
+                    } else if (v == (long)v) {
+                        printf("%ld\n", (long)v);
+                    } else {
+                        printf("%g\n", v);
+                    }
                     break;
                 }
                 default: break;
@@ -230,7 +250,7 @@ int main(void) {
     while (fgets(line, sizeof(line), stdin)) {
         int n = tokenize(line, toks, 256);
         exec(toks, n);
-        printf("\nzona> ");
+        printf("zona> ");
     }
     printf("\n");
     return 0;
