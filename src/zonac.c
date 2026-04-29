@@ -64,11 +64,13 @@ static int add_str(const char *text) {
    ============================================================ */
 
 #define EXTERN_MAX 256
+#define EXTERN_PARAMS_MAX 16
 static struct {
     char zona_name[256];
     char c_name[256];
-    char ret_type;
-    char param_types[64];
+    char ret_type[32];
+    char param_types[EXTERN_PARAMS_MAX][32];
+    int param_count;
 } externs[EXTERN_MAX];
 static int extern_count = 0;
 
@@ -852,7 +854,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    %%t%d =w call $rand()\n", rv);
             fprintf(out, "    %%t%d =w rem %%t%d, %%t%d\n", rm, rv, mi);
             fprintf(out, "    %%t%d =d swtof %%t%d\n", rd, rm);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
+            fprintf(out, "    call $zona_push(d %%t%d)\n", rd);l
         } else {
             fprintf(stderr, "compile: unknown primitive: %s\n", t->text);
         }
@@ -865,14 +867,25 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
         } else {
             int ei = find_extern(t->text);
             if (ei >= 0) {
-                /* FFI call */
-                const char *params = externs[ei].param_types;
-                int plen = (int)strlen(params);
-                /* allocate temps for each param (reverse order pop) */
-                int ptmps[64], stmps[64];
+                /* FFI call — map C type names to QBE */
+                int plen = externs[ei].param_count;
+                /* helper: type name → QBE type letter */
+                #define QBE_TYPE(ty) ( \
+                    (strcmp(ty,"double")==0) ? "d" : \
+                    (strcmp(ty,"float")==0) ? "s" : \
+                    (strcmp(ty,"long")==0||strcmp(ty,"size_t")==0|| \
+                     strchr(ty,'*')) ? "l" : "w")
+                #define IS_STR(ty) (strcmp(ty,"char*")==0)
+                #define IS_VOID(ty) (strcmp(ty,"void")==0)
+                #define IS_DOUBLE(ty) (strcmp(ty,"double")==0)
+                #define IS_FLOAT(ty) (strcmp(ty,"float")==0)
+                #define IS_LONG(ty) (strcmp(ty,"long")==0||strcmp(ty,"size_t")==0||strchr(ty,'*'))
+
+                /* pop params in reverse order */
+                int ptmps[EXTERN_PARAMS_MAX], stmps[EXTERN_PARAMS_MAX];
                 for (int j = plen - 1; j >= 0; j--) {
-                    if (params[j] == 's') {
-                        /* string: pop addr+len, convert to C string */
+                    const char *pt = externs[ei].param_types[j];
+                    if (IS_STR(pt)) {
                         stmps[j] = newtmp();
                         fprintf(out, "    %%t%d =l call $zona_to_cstr()\n", stmps[j]);
                         ptmps[j] = stmps[j];
@@ -882,53 +895,38 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                         stmps[j] = -1;
                     }
                 }
-                /* convert types and build call */
-                int ctmps[64]; /* converted temps */
+                /* convert types */
+                int ctmps[EXTERN_PARAMS_MAX];
                 for (int j = 0; j < plen; j++) {
-                    switch (params[j]) {
-                    case 'i':
-                        ctmps[j] = newtmp();
-                        fprintf(out, "    %%t%d =w dtosi %%t%d\n", ctmps[j], ptmps[j]);
-                        break;
-                    case 'l': case 'p':
-                        ctmps[j] = newtmp();
-                        { int ti = newtmp();
-                        fprintf(out, "    %%t%d =l dtosi %%t%d\n", ti, ptmps[j]);
-                        ctmps[j] = ti; }
-                        break;
-                    case 'f':
+                    const char *pt = externs[ei].param_types[j];
+                    if (IS_STR(pt)) {
+                        ctmps[j] = ptmps[j];
+                    } else if (IS_DOUBLE(pt)) {
+                        ctmps[j] = ptmps[j];
+                    } else if (IS_FLOAT(pt)) {
                         ctmps[j] = newtmp();
                         fprintf(out, "    %%t%d =s truncd %%t%d\n", ctmps[j], ptmps[j]);
-                        break;
-                    case 'd':
-                        ctmps[j] = ptmps[j]; /* already double */
-                        break;
-                    case 's':
-                        ctmps[j] = ptmps[j]; /* already l from zona_to_cstr */
-                        break;
+                    } else if (IS_LONG(pt)) {
+                        ctmps[j] = newtmp();
+                        fprintf(out, "    %%t%d =l dtosi %%t%d\n", ctmps[j], ptmps[j]);
+                    } else {
+                        /* int, char, short, bool → w */
+                        ctmps[j] = newtmp();
+                        fprintf(out, "    %%t%d =w dtosi %%t%d\n", ctmps[j], ptmps[j]);
                     }
                 }
                 /* emit call */
-                char rt = externs[ei].ret_type;
+                const char *rt = externs[ei].ret_type;
                 int rettmp = -1;
-                if (rt != 'v') {
+                if (!IS_VOID(rt)) {
                     rettmp = newtmp();
-                    const char *qrt = (rt == 'd') ? "d" : (rt == 'f') ? "s" : (rt == 'l' || rt == 'p' || rt == 's') ? "l" : "w";
-                    fprintf(out, "    %%t%d =%s call $%s(", rettmp, qrt, externs[ei].c_name);
+                    fprintf(out, "    %%t%d =%s call $%s(", rettmp, QBE_TYPE(rt), externs[ei].c_name);
                 } else {
                     fprintf(out, "    call $%s(", externs[ei].c_name);
                 }
                 for (int j = 0; j < plen; j++) {
                     if (j > 0) fprintf(out, ", ");
-                    const char *qt;
-                    switch (params[j]) {
-                    case 'i': qt = "w"; break;
-                    case 'l': case 'p': case 's': qt = "l"; break;
-                    case 'f': qt = "s"; break;
-                    case 'd': qt = "d"; break;
-                    default: qt = "w"; break;
-                    }
-                    fprintf(out, "%s %%t%d", qt, ctmps[j]);
+                    fprintf(out, "%s %%t%d", QBE_TYPE(externs[ei].param_types[j]), ctmps[j]);
                 }
                 fprintf(out, ")\n");
                 /* free string temps */
@@ -936,23 +934,29 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                     if (stmps[j] >= 0)
                         fprintf(out, "    call $free(l %%t%d)\n", stmps[j]);
                 /* push return value */
-                if (rt != 'v') {
+                if (!IS_VOID(rt)) {
                     int rd = newtmp();
-                    if (rt == 's') {
-                        /* C char* → zona string: copy into mem, push addr+len */
+                    if (IS_STR(rt)) {
                         fprintf(out, "    call $zona_cstr_to_zona(l %%t%d)\n", rettmp);
-                    } else if (rt == 'd') {
+                    } else if (IS_DOUBLE(rt)) {
                         fprintf(out, "    call $zona_push(d %%t%d)\n", rettmp);
-                    } else if (rt == 'f') {
+                    } else if (IS_FLOAT(rt)) {
                         fprintf(out, "    %%t%d =d exts %%t%d\n", rd, rettmp);
                         fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
+                    } else if (IS_LONG(rt)) {
+                        fprintf(out, "    %%t%d =d sltof %%t%d\n", rd, rettmp);
+                        fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
                     } else {
-                        /* i, l, p -> double */
-                        const char *cvt = (rt == 'i') ? "swtof" : "sltof";
-                        fprintf(out, "    %%t%d =d %s %%t%d\n", rd, cvt, rettmp);
+                        fprintf(out, "    %%t%d =d swtof %%t%d\n", rd, rettmp);
                         fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
                     }
                 }
+                #undef QBE_TYPE
+                #undef IS_STR
+                #undef IS_VOID
+                #undef IS_DOUBLE
+                #undef IS_FLOAT
+                #undef IS_LONG
             } else {
                 fprintf(stderr, "compile: unknown word: %s\n", t->text);
             }
@@ -1034,12 +1038,30 @@ static void collect_toplevel(Token *toks, int n) {
             int ei = extern_count++;
             strncpy(externs[ei].zona_name, toks[i+1].text, 255);
             strncpy(externs[ei].c_name, toks[i+2].text, 255);
-            externs[ei].ret_type = toks[i+3].text[0];
             int cnt = line_token_count(toks, n, i);
-            if (cnt >= 5)
-                strncpy(externs[ei].param_types, toks[i+4].text, 63);
-            else
-                externs[ei].param_types[0] = '\0';
+            /* parse type tokens starting at i+3, merging word+* */
+            int j = i + 3, ti = 0;
+            /* first type is return type */
+            if (j < i + cnt) {
+                strncpy(externs[ei].ret_type, toks[j].text, 31);
+                j++;
+                /* merge trailing * */
+                if (j < i + cnt && toks[j].type == T_SYM && toks[j].text[0] == '*') {
+                    strncat(externs[ei].ret_type, "*", 31 - strlen(externs[ei].ret_type));
+                    j++;
+                }
+            }
+            /* remaining types are params */
+            while (j < i + cnt && ti < EXTERN_PARAMS_MAX) {
+                strncpy(externs[ei].param_types[ti], toks[j].text, 31);
+                j++;
+                if (j < i + cnt && toks[j].type == T_SYM && toks[j].text[0] == '*') {
+                    strncat(externs[ei].param_types[ti], "*", 31 - strlen(externs[ei].param_types[ti]));
+                    j++;
+                }
+                ti++;
+            }
+            externs[ei].param_count = ti;
             i += cnt; continue;
         }
         if (toks[i].type == T_SYM && toks[i].text[0] == '@') {

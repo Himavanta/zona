@@ -108,8 +108,8 @@ run "c:args" "./zonac tests/test_args.zona -o /tmp/_zonac_args 2>&1 && /tmp/_zon
 
 # --- :bind test ---
 cat > /tmp/_test_bind.zona << 'ZONA'
-:bind myPuts 'puts' i s
-:bind myAbs 'abs' i i
+:bind myPuts 'puts' int char*
+:bind myAbs 'abs' int int
 'hello FFI' myPuts :drop
 -42 myAbs .
 ZONA
@@ -117,8 +117,8 @@ run "c:bind" "zonac_run /tmp/_test_bind.zona" "$(printf 'hello FFI\n42')"
 
 # --- peek/poke test ---
 cat > /tmp/_test_peek.zona << 'ZONA'
-:bind cmalloc 'malloc' l l
-:bind cfree 'free' v l
+:bind cmalloc 'malloc' void* long
+:bind cfree 'free' void void*
 16 cmalloc
 42 :over :poke32
 99 :over 4 + :poke8
@@ -130,7 +130,7 @@ run "c:peek_poke" "zonac_run /tmp/_test_peek.zona" "$(printf '42\n99')"
 
 # --- S return type test ---
 cat > /tmp/_test_sret.zona << 'ZONA'
-:bind getenv 'getenv' s s
+:bind getenv 'getenv' char* char*
 'USER' getenv :type 10 :emit
 ZONA
 run "c:S_return" "zonac_run /tmp/_test_sret.zona" "$(whoami)"
@@ -156,27 +156,21 @@ cat > /tmp/_test_v3.zona << 'ZONA'
 ZONA
 run "v:use_in_word" "./zona /tmp/_test_v3.zona 2>&1" "line 1: :use cannot appear inside word 'foo'"
 
-# :bind bad return type
+# :bind bad return type — now any word is accepted as type, but missing tokens still caught
 cat > /tmp/_test_v4.zona << 'ZONA'
-:bind foo 'foo' int
+:bind foo 'foo'
 ZONA
-run "v:bind_bad_ret" "./zonac /tmp/_test_v4.zona -o /tmp/_v4 2>&1" "line 1: :bind return type must be a single type char (idfslpv)"
+run "v:bind_too_few" "./zonac /tmp/_test_v4.zona -o /tmp/_v4 2>&1" "line 1: :bind requires: name 'cname' retType [paramTypes...]"
 
-# :bind bad param types
+# :bind missing c name
 cat > /tmp/_test_v5.zona << 'ZONA'
-:bind foo 'foo' v xyz
-ZONA
-run "v:bind_bad_params" "./zonac /tmp/_test_v5.zona -o /tmp/_v5 2>&1" "line 1: :bind param types must only contain type chars (idfslpv)"
-
-# :bind too few tokens
-cat > /tmp/_test_v6.zona << 'ZONA'
 :bind foo
 ZONA
-run "v:bind_too_few" "./zonac /tmp/_test_v6.zona -o /tmp/_v6 2>&1" "line 1: :bind requires: name 'cname' retType [paramTypes]"
+run "v:bind_missing" "./zonac /tmp/_test_v5.zona -o /tmp/_v5 2>&1" "line 1: :bind requires: name 'cname' retType [paramTypes...]"
 
 # interpreter ignores :bind
 cat > /tmp/_test_v7.zona << 'ZONA'
-:bind myPuts 'puts' i s
+:bind myPuts 'puts' int char*
 42 .
 ZONA
 run "v:bind_ignored" "./zona /tmp/_test_v7.zona" "42"

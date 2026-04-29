@@ -51,7 +51,17 @@ hello
 
 #### FFI：链接 C 库
 
-编译产物是原生代码，可直接链接任意 C 库。编译时保留中间文件手动链接：
+编译产物是原生代码，可直接链接任意 C 库。用 `:bind` 声明 C 函数：
+
+```
+:bind initWindow 'InitWindow' void int int char*
+:bind closeWindow 'CloseWindow' void
+
+800 600 'hello' initWindow
+closeWindow
+```
+
+编译并链接：
 
 ```
 ./zonac game.zona -o game

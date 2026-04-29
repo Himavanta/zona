@@ -9,9 +9,9 @@ Zona 是一个自定义 Forth 方言，用纯 C 实现。项目路径：`/Users/
 ```
 zona/
   src/
-    zona.h      — 共享前端（Token 定义、tokenizer、Word 结构、read_file、校验函数）（233 行）
-    zona.c      — 解释器（461 行）
-    zonac.c     — QBE 编译器（1082 行）
+    zona.h      — 共享前端（Token 定义、tokenizer、Word 结构、read_file、校验函数）（235 行）
+    zona.c      — 解释器（471 行）
+    zonac.c     — QBE 编译器（1192 行）
   std/          — 标准库（math/logic/stack/io/test.zona + all.zona）
   docs/
     spec.md     — 语言规范（完整）
@@ -116,12 +116,15 @@ QBE 查找：直接使用 PATH 中的 `qbe`。
 
 ### FFI（`:bind`）
 
-通过 `:bind` 声明外部 C 函数，编译后直接链接：
+通过 `:bind` 声明外部 C 函数，使用 C 标准类型名称，编译后直接链接：
 
 ```
-:bind myPuts 'puts' i s
+:bind myPuts 'puts' int char*
+:bind getenv 'getenv' char* char*
+:bind cmalloc 'malloc' void* long
 'hello' myPuts :drop
 ```
 
-支持类型：`i`(int) `d`(double) `f`(float) `s`(string) `l`(long) `p`(pointer) `v`(void)。
+支持类型：`void` `char` `short` `int` `long` `float` `double` `char*` `void*` 及其他指针类型。
+`char*` 参数自动从 zona 字符串转换，`char*` 返回值自动转为 zona 字符串。
 解释器忽略 `:bind`。详见 `docs/ffi.md`。

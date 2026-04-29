@@ -273,31 +273,41 @@
 使用 `:bind` 原语声明外部 C 函数绑定，仅在编译器中有效，解释器忽略。
 
 ```
-:bind zonaName 'cName' returnType [paramTypes]
+:bind zonaName 'cName' returnType [paramType ...]
 ```
 
 - `zonaName` — zona 里的字名，遵守现有词法规则
 - `'cName'` — C 函数真名，字符串包裹
-- `returnType` — 单字符返回类型
-- `paramTypes` — 可选，参数类型字符串
+- `returnType` — 返回类型，使用 C 类型名称
+- `paramType ...` — 可选，参数类型列表，每个类型一个词元
 
 ```
-:bind initWindow 'InitWindow' v iis    _ int int string → void
-:bind getWidth 'GetScreenWidth' i      _ → int
-:bind myPuts 'puts' i s               _ string → int
+:bind initWindow 'InitWindow' void int int char*
+:bind getWidth 'GetScreenWidth' int
+:bind drawCircle 'DrawCircle' void int int float Color
+:bind getenv 'getenv' char* char*
+:bind cmalloc 'malloc' void* long
 ```
 
-### 类型字符
+### 类型名称
 
-| 字符 | C 类型 |
-|------|--------|
-| `i` | int |
-| `l` | long / size_t / 指针 |
-| `d` | double |
-| `f` | float |
-| `s` | const char*（参数：zona→C，返回：C→zona，自动双向转换）|
-| `p` | 指针（语义同 `l`）|
-| `v` | void（仅用于返回类型）|
+使用 C 标准类型名称，指针类型用 `*` 后缀：
+
+| zona 类型名 | C 类型 | 说明 |
+|------------|--------|------|
+| `void` | void | 仅用于返回类型 |
+| `char` | char | 单字节 |
+| `short` | short | 2 字节整数 |
+| `int` | int | 4 字节整数 |
+| `long` | long | 8 字节整数 |
+| `float` | float | 单精度浮点 |
+| `double` | double | 双精度浮点 |
+| `char*` | const char* | 字符串，参数：zona→C，返回：C→zona，自动双向转换 |
+| `void*` | void* | 通用指针 |
+| `int*` 等 | 对应指针 | 任意类型指针 |
+| `Color` 等 | 结构体 | 按值传递（需先用 `:struct` 声明，待实现）|
+
+`char*` 和 `void*` 中的 `*` 在 `:bind` 行内特殊处理——tokenizer 会将其拆为两个词元，`:bind` 解析时自动合并。
 
 ### 行格式规则
 

@@ -3,8 +3,8 @@
 ## 用法
 
 ```
-:bind initWindow 'InitWindow' v iis
-:bind closeWindow 'CloseWindow' v
+:bind initWindow 'InitWindow' void int int char*
+:bind closeWindow 'CloseWindow' void
 
 800 600 'hello' initWindow
 closeWindow
@@ -34,15 +34,15 @@ cc game.s -o game -lraylib -lm
 
 ### 已支持的类型
 
-| 字符 | C 类型 | 方向 | 状态 |
-|------|--------|------|------|
-| `i` | int | 参数+返回 | ✅ |
-| `l` | long/size_t | 参数+返回 | ✅ |
-| `d` | double | 参数+返回 | ✅ |
-| `f` | float | 参数+返回 | ✅ |
-| `s` | const char* | 参数+返回 | ✅ 参数：zona→C，返回：C→zona，自动双向转换 |
-| `p` | 指针 | 参数+返回 | ✅ 数值传递，语义同 `l` |
-| `v` | void | 返回 | ✅ |
+| zona 类型名 | C 类型 | 方向 | 状态 |
+|------------|--------|------|------|
+| `int` | int | 参数+返回 | ✅ |
+| `long` | long/size_t | 参数+返回 | ✅ |
+| `double` | double | 参数+返回 | ✅ |
+| `float` | float | 参数+返回 | ✅ |
+| `char*` | const char* | 参数+返回 | ✅ 自动双向转换 |
+| `void*` | void* | 参数+返回 | ✅ 数值传递 |
+| `void` | void | 返回 | ✅ |
 
 ### C 内存读写
 
@@ -102,17 +102,20 @@ _ 栈上现在是指向 Color 数据的指针
 :struct Rect 'Rectangle' ffff       _ 4 个 float
 ```
 
-编译器据此生成 QBE `type` 定义。但**未解决的问题**：
+编译器据此生成 QBE `type` 定义。新的多词元 `:bind` 语法天然支持结构体名：
 
-1. **`:bind` 签名怎么引用结构体？** 签名是一串类型字符，塞结构体信息会变丑：
-   - `v iif.Color` — 用点号引用？
-   - `v iif{bbbb}` — 内联布局？
-   - `v iif1` — 用索引？
-   都不够好。
+```
+:bind drawCircle 'DrawCircle' void int int float Color
+:bind drawRect 'DrawRectangleRec' void Rect Color
+```
 
-2. **zona 栈上怎么表示结构体？** 是 4 个独立值（r g b a 分别压栈），还是一个指针？如果是多个值，参数个数和签名字符数就对不上了。
+每个类型一个词元，结构体名和基本类型名视觉上统一。
 
-3. **字段类型字符需要扩展**：`b`（byte）不在现有类型表里，需要新增。
+**仍未解决的问题**：
+
+1. **zona 栈上怎么表示结构体？** 是多个独立值（r g b a 分别压栈），还是一个指针？如果是多个值，编译器需要知道字段数量来决定 pop 几次。
+
+2. **`:struct` 的字段类型也应该用 C 类型名**：`char char char char` 而不是 `bbbb`，和 `:bind` 保持一致。
 
 ### 替代方案：zona 标准库封装
 
