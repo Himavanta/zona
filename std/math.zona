@@ -1,13 +1,8 @@
-_ Zona 标准库
+_ 数学工具
 
-_ 数学
 @ neg 0 :swap - ;
 @ abs :dup 0 < ? neg ;
 @ sq :dup * ;
 @ min :over :over > ? :swap :drop ;
 @ max :over :over < ? :swap :drop ;
 @ not 0 = ;
-
-_ IO
-@ nl 10 :emit ;
-@ space 32 :emit ;

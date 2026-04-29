@@ -56,7 +56,8 @@ _ 字符串
 'hello zona' :type 10 :emit
 
 _ 引入文件
-:use './std.zona'
+:use './std/all.zona'    _ 全部标准库
+:use './std/math.zona'   _ 或按需引入
 
 _ 内存
 42 :here #       _ 写
@@ -89,4 +90,4 @@ ln -s /path/to/zona/editors/vscode ~/.vscode/extensions/zona-lang
 - `docs/spec.md` — 语言规范
 - `docs/roadmap.md` — 实现路线图
 - `examples/` — 示例程序
-- `std.zona` — 标准库
+- `std/` — 标准库（`all.zona` 全部引入，或按需引入 `math.zona` `io.zona`）

@@ -1,5 +1,5 @@
-:use '../std.zona'
-:use '../std.zona'
+:use '../std/all.zona'
+:use '../std/all.zona'
 
 _ 如果 std 被加载两次，这些字会被重复定义
 _ 但因为跳过机制，只加载一次
