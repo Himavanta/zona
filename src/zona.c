@@ -196,6 +196,16 @@ static void exec_prim(const char *name) {
         return;
     }
 
+    /* C memory peek/poke */
+    if (strcmp(name, ":peek8") == 0) { unsigned char *p = (unsigned char *)(long)pop(); push(*p); return; }
+    if (strcmp(name, ":peek32") == 0) { int *p = (int *)(long)pop(); push(*p); return; }
+    if (strcmp(name, ":peek64") == 0) { long *p = (long *)(long)pop(); push(*p); return; }
+    if (strcmp(name, ":peekd") == 0) { double *p = (double *)(long)pop(); push(*p); return; }
+    if (strcmp(name, ":poke8") == 0) { unsigned char *p = (unsigned char *)(long)pop(); *p = (unsigned char)(int)pop(); return; }
+    if (strcmp(name, ":poke32") == 0) { int *p = (int *)(long)pop(); *p = (int)pop(); return; }
+    if (strcmp(name, ":poke64") == 0) { long *p = (long *)(long)pop(); *p = (long)pop(); return; }
+    if (strcmp(name, ":poked") == 0) { double *p = (double *)(long)pop(); *p = pop(); return; }
+
     /* debug */
     if (strcmp(name, ":stack") == 0) {
         printf("<%d>", sp);

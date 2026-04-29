@@ -88,7 +88,7 @@ static int tokenize(const char *line, Token *toks, int max, int line_num) {
         /* system primitive :xxx */
         if (*p == ':' && isalpha((unsigned char)*(p+1))) {
             const char *s = p; p++;
-            while (isalpha((unsigned char)*p)) p++;
+            while (isalpha((unsigned char)*p) || isdigit((unsigned char)*p)) p++;
             int len = (int)(p - s);
             memcpy(toks[n].text, s, len); toks[n].text[len] = '\0';
             toks[n].type = T_PRIM;
@@ -161,7 +161,7 @@ static char *read_file(const char *path) {
 
 static int is_type_str(const char *s) {
     for (; *s; s++)
-        if (!strchr("idfslpv", *s)) return 0;
+        if (!strchr("idfslpvS", *s)) return 0;
     return 1;
 }
 

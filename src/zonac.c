@@ -505,6 +505,75 @@ static void emit_runtime(void) {
     fprintf(out, "    call $zona_store_str(l %%str, w %%len)\n");
     fprintf(out, "    ret\n}\n\n");
 
+    /* peek/poke: read/write real C memory addresses */
+    fprintf(out, "function $zona_peek8() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    %%v =w loadub %%p\n");
+    fprintf(out, "    %%vd =d swtof %%v\n");
+    fprintf(out, "    call $zona_push(d %%vd)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    fprintf(out, "function $zona_peek32() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    %%v =w loadw %%p\n");
+    fprintf(out, "    %%vd =d swtof %%v\n");
+    fprintf(out, "    call $zona_push(d %%vd)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    fprintf(out, "function $zona_peek64() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    %%v =l loadl %%p\n");
+    fprintf(out, "    %%vd =d sltof %%v\n");
+    fprintf(out, "    call $zona_push(d %%vd)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    fprintf(out, "function $zona_peekd() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    %%v =d loadd %%p\n");
+    fprintf(out, "    call $zona_push(d %%v)\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    fprintf(out, "function $zona_poke8() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%val =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    %%vi =w dtosi %%val\n");
+    fprintf(out, "    storeb %%vi, %%p\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    fprintf(out, "function $zona_poke32() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%val =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    %%vi =w dtosi %%val\n");
+    fprintf(out, "    storew %%vi, %%p\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    fprintf(out, "function $zona_poke64() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%val =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    %%vi =l dtosi %%val\n");
+    fprintf(out, "    storel %%vi, %%p\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    fprintf(out, "function $zona_poked() {\n@start\n");
+    fprintf(out, "    %%a =d call $zona_pop()\n");
+    fprintf(out, "    %%val =d call $zona_pop()\n");
+    fprintf(out, "    %%p =l dtosi %%a\n");
+    fprintf(out, "    stored %%val, %%p\n");
+    fprintf(out, "    ret\n}\n\n");
+
+    /* cstr_to_zona: convert C char* to zona string (copy into mem, push addr len) */
+    fprintf(out, "function $zona_cstr_to_zona(l %%ptr) {\n@start\n");
+    fprintf(out, "    %%len =w call $strlen(l %%ptr)\n");
+    fprintf(out, "    call $zona_store_str(l %%ptr, w %%len)\n");
+    fprintf(out, "    ret\n}\n\n");
+
     /* to_cstr: pop addr+len from zona stack, return C string pointer (caller must free) */
     fprintf(out, "function l $zona_to_cstr() {\n@start\n");
     fprintf(out, "    %%len =d call $zona_pop()\n");
@@ -738,6 +807,22 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
         } else if (strcmp(t->text, ":stack") == 0) {
             fprintf(out, "    call $zona_stack()\n");
+        } else if (strcmp(t->text, ":peek8") == 0) {
+            fprintf(out, "    call $zona_peek8()\n");
+        } else if (strcmp(t->text, ":peek32") == 0) {
+            fprintf(out, "    call $zona_peek32()\n");
+        } else if (strcmp(t->text, ":peek64") == 0) {
+            fprintf(out, "    call $zona_peek64()\n");
+        } else if (strcmp(t->text, ":peekd") == 0) {
+            fprintf(out, "    call $zona_peekd()\n");
+        } else if (strcmp(t->text, ":poke8") == 0) {
+            fprintf(out, "    call $zona_poke8()\n");
+        } else if (strcmp(t->text, ":poke32") == 0) {
+            fprintf(out, "    call $zona_poke32()\n");
+        } else if (strcmp(t->text, ":poke64") == 0) {
+            fprintf(out, "    call $zona_poke64()\n");
+        } else if (strcmp(t->text, ":poked") == 0) {
+            fprintf(out, "    call $zona_poked()\n");
         } else if (strcmp(t->text, ":fopen") == 0) {
             fprintf(out, "    call $zona_fopen()\n");
         } else if (strcmp(t->text, ":fclose") == 0) {
@@ -828,7 +913,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                 int rettmp = -1;
                 if (rt != 'v') {
                     rettmp = newtmp();
-                    const char *qrt = (rt == 'd') ? "d" : (rt == 'f') ? "s" : (rt == 'l' || rt == 'p') ? "l" : "w";
+                    const char *qrt = (rt == 'd') ? "d" : (rt == 'f') ? "s" : (rt == 'l' || rt == 'p' || rt == 'S') ? "l" : "w";
                     fprintf(out, "    %%t%d =%s call $%s(", rettmp, qrt, externs[ei].c_name);
                 } else {
                     fprintf(out, "    call $%s(", externs[ei].c_name);
@@ -853,7 +938,10 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                 /* push return value */
                 if (rt != 'v') {
                     int rd = newtmp();
-                    if (rt == 'd') {
+                    if (rt == 'S') {
+                        /* C char* → zona string: copy into mem, push addr+len */
+                        fprintf(out, "    call $zona_cstr_to_zona(l %%t%d)\n", rettmp);
+                    } else if (rt == 'd') {
                         fprintf(out, "    call $zona_push(d %%t%d)\n", rettmp);
                     } else if (rt == 'f') {
                         fprintf(out, "    %%t%d =d exts %%t%d\n", rd, rettmp);

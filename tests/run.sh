@@ -115,6 +115,26 @@ cat > /tmp/_test_bind.zona << 'ZONA'
 ZONA
 run "c:bind" "zonac_run /tmp/_test_bind.zona" "$(printf 'hello FFI\n42')"
 
+# --- peek/poke test ---
+cat > /tmp/_test_peek.zona << 'ZONA'
+:bind cmalloc 'malloc' l l
+:bind cfree 'free' v l
+16 cmalloc
+42 :over :poke32
+99 :over 4 + :poke8
+:dup :peek32 .
+:dup 4 + :peek8 .
+cfree
+ZONA
+run "c:peek_poke" "zonac_run /tmp/_test_peek.zona" "$(printf '42\n99')"
+
+# --- S return type test ---
+cat > /tmp/_test_sret.zona << 'ZONA'
+:bind getenv 'getenv' S s
+'USER' getenv :type 10 :emit
+ZONA
+run "c:S_return" "zonac_run /tmp/_test_sret.zona" "$(whoami)"
+
 # --- validation tests ---
 echo "# validation"
 
@@ -162,7 +182,7 @@ ZONA
 run "v:bind_ignored" "./zona /tmp/_test_v7.zona" "42"
 
 # cleanup
-rm -f /tmp/_test_bind.zona /tmp/_test_v*.zona
+rm -f /tmp/_test_bind.zona /tmp/_test_peek.zona /tmp/_test_sret.zona /tmp/_test_v*.zona
 
 echo ""
 echo "$((PASS + FAIL)) tests, $PASS passed, $FAIL failed"
