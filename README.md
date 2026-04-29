@@ -5,10 +5,15 @@
 ## 编译
 
 ```
-cc src/zona.c -o zona -lm -lreadline
+cc src/zona.c -o zona -lm -lreadline    # 解释器
+cc src/zonac.c -o zonac -lm             # 编译器
 ```
 
+编译器依赖 [QBE](https://c9x.me/compile/)，需将 `qbe` 放在 `qbe-1.2/qbe`（相对于 zonac）或 PATH 中。
+
 ## 使用
+
+### 解释器
 
 REPL 交互模式：
 
@@ -24,6 +29,21 @@ hello
 
 ```
 ./zona examples/demo.zona
+```
+
+### 编译器
+
+编译为原生可执行文件：
+
+```
+./zonac examples/demo.zona -o demo
+./demo
+```
+
+编译流程：zona 源码 → QBE IR → 汇编 → 原生可执行文件。编译产物可直接链接 C 库：
+
+```
+cc output.s -o prog -lraylib -lm
 ```
 
 ## 快速入门
@@ -89,5 +109,7 @@ ln -s /path/to/zona/editors/vscode ~/.vscode/extensions/zona-lang
 
 - `docs/spec.md` — 语言规范
 - `docs/roadmap.md` — 实现路线图
+- `docs/context.md` — 项目上下文与实现细节
+- `docs/ffi.md` — FFI 讨论记录
 - `examples/` — 示例程序
 - `std/` — 标准库（`all.zona` 全部引入，或按需引入 `math.zona` `io.zona` `logic.zona` `stack.zona` `test.zona`）
