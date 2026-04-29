@@ -62,5 +62,6 @@ _ 内存
 
 ## 文档
 
-- `spec.md` — 语言规范
-- `roadmap.md` — 实现路线图
+- `docs/spec.md` — 语言规范
+- `docs/roadmap.md` — 实现路线图
+- `examples/` — 示例程序
