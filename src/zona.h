@@ -232,4 +232,44 @@ static void check_body_no_directives(Token *body, int len, const char *word_name
     }
 }
 
+/* ============================================================
+   Shared utilities (used by both interpreter and compiler)
+   ============================================================ */
+
+#define USE_MAX 64
+
+static Word *find_word(Word *dict, int dict_count, const char *name) {
+    for (int i = dict_count - 1; i >= 0; i--)
+        if (strcmp(dict[i].name, name) == 0) return &dict[i];
+    return NULL;
+}
+
+static int already_used(char (*used_files)[512], int used_count, const char *path) {
+    for (int i = 0; i < used_count; i++)
+        if (strcmp(used_files[i], path) == 0) return 1;
+    return 0;
+}
+
+static void resolve_path(const char *base, const char *rel, char *out, int out_size) {
+    if (rel[0] == '/') { snprintf(out, out_size, "%s", rel); return; }
+    snprintf(out, out_size, "%s/%s", base, rel);
+    char *p;
+    while ((p = strstr(out, "/./")) != NULL)
+        memmove(p, p + 2, strlen(p + 2) + 1);
+    while ((p = strstr(out, "/../")) != NULL) {
+        char *prev = p - 1;
+        while (prev > out && *prev != '/') prev--;
+        if (prev >= out) memmove(prev, p + 3, strlen(p + 3) + 1);
+        else break;
+    }
+}
+
+static void dir_of(const char *path, char *out, int out_size) {
+    strncpy(out, path, out_size - 1);
+    out[out_size - 1] = '\0';
+    char *last = strrchr(out, '/');
+    if (last) *last = '\0';
+    else strcpy(out, ".");
+}
+
 #endif

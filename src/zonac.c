@@ -37,12 +37,6 @@ static int vpeek(void) {
 static Word dict[DICT_MAX];
 static int dict_count = 0;
 
-static Word *find_word(const char *name) {
-    for (int i = dict_count - 1; i >= 0; i--)
-        if (strcmp(dict[i].name, name) == 0) return &dict[i];
-    return NULL;
-}
-
 /* ============================================================
    String literals collection (emitted as QBE data)
    ============================================================ */
@@ -854,14 +848,14 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    %%t%d =w call $rand()\n", rv);
             fprintf(out, "    %%t%d =w rem %%t%d, %%t%d\n", rm, rv, mi);
             fprintf(out, "    %%t%d =d swtof %%t%d\n", rd, rm);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", rd);l
+            fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
         } else {
             fprintf(stderr, "compile: unknown primitive: %s\n", t->text);
         }
         break;
 
     case T_WORD: {
-        Word *w = find_word(t->text);
+        Word *w = find_word(dict, dict_count, t->text);
         if (w) {
             fprintf(out, "    call $zona_%s()\n", t->text);
         } else {
@@ -981,35 +975,9 @@ static void compile_body(Token *toks, int n, int in_word) {
 /* forward decl */
 static void compile_file(const char *path);
 
-#define USE_MAX 64
 static char used_files[USE_MAX][512];
 static int used_count = 0;
 static char current_dir[512] = ".";
-
-static int already_used(const char *path) {
-    for (int i = 0; i < used_count; i++)
-        if (strcmp(used_files[i], path) == 0) return 1;
-    return 0;
-}
-
-static void resolve_path(const char *base, const char *rel, char *o, int sz) {
-    if (rel[0] == '/') { snprintf(o, sz, "%s", rel); return; }
-    snprintf(o, sz, "%s/%s", base, rel);
-    char *p;
-    while ((p = strstr(o, "/./")) != NULL) memmove(p, p + 2, strlen(p + 2) + 1);
-    while ((p = strstr(o, "/../")) != NULL) {
-        char *prev = p - 1;
-        while (prev > o && *prev != '/') prev--;
-        if (prev >= o) memmove(prev, p + 3, strlen(p + 3) + 1);
-        else break;
-    }
-}
-
-static void dir_of(const char *path, char *o, int sz) {
-    strncpy(o, path, sz - 1); o[sz - 1] = '\0';
-    char *last = strrchr(o, '/');
-    if (last) *last = '\0'; else strcpy(o, ".");
-}
 
 /* first pass: collect all string literals and word definitions */
 static int main_seg_count = 0;
@@ -1025,7 +993,7 @@ static void collect_toplevel(Token *toks, int n) {
             i++;
             char resolved[512];
             resolve_path(current_dir, toks[i].text, resolved, sizeof(resolved));
-            if (!already_used(resolved)) {
+            if (!already_used(used_files, used_count, resolved)) {
                 if (used_count >= USE_MAX) { fprintf(stderr, "too many :use\n"); return; }
                 strncpy(used_files[used_count++], resolved, 511);
                 compile_file(resolved);
