@@ -132,7 +132,7 @@ static int tokenize_all(const char *src, Token *toks, int max) {
    Word definition (shared structure)
    ============================================================ */
 
-#define DICT_MAX 256
+#define DICT_MAX 1024
 #define WORD_BODY_MAX 256
 
 typedef struct {
