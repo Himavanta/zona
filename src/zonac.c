@@ -824,6 +824,8 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
         vsync();
         if (strcmp(t->text, ":clear") == 0) {
             fprintf(out, "    storew 0, $sp\n");
+        } else if (strcmp(t->text, ":trace") == 0) {
+            newtmp(); fprintf(out, "    %%t%d =d call $zona_pop()\n", tmp_id - 1);
         } else if (strcmp(t->text, ":here") == 0) {
             fprintf(out, "    call $zona_here()\n");
         } else if (strcmp(t->text, ":allot") == 0) {

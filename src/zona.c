@@ -10,6 +10,7 @@
 static double stack[STACK_MAX];
 static int sp = 0;
 static int cur_line = 0;
+static int trace_on = 0;
 
 static void push(double v) {
     if (sp >= STACK_MAX) { fprintf(stderr, "line %d: stack overflow\n", cur_line); return; }
@@ -212,6 +213,10 @@ static void exec_prim(const char *name) {
         putchar('\n');
         return;
     }
+    if (strcmp(name, ":trace") == 0) {
+        trace_on = (pop() != 0);
+        return;
+    }
 
     fprintf(stderr, "line %d: unknown primitive: %s\n", cur_line, name);
 }
@@ -255,24 +260,36 @@ static void exec_sym(char c) {
    Interpreter
    ============================================================ */
 
+static void trace_print(void) {
+    printf("<%d>", sp);
+    for (int i = 0; i < sp; i++) {
+        double v = stack[i];
+        if (v == (long)v) printf(" %ld", (long)v);
+        else printf(" %g", v);
+    }
+    putchar('\n');
+}
+
 static enum ExecResult exec_one(Token *t) {
+    enum ExecResult r = EX_OK;
     switch (t->type) {
-        case T_NUM: push(t->num); return EX_OK;
-        case T_STR: store_str(t->text); return EX_OK;
+        case T_NUM: push(t->num); break;
+        case T_STR: store_str(t->text); break;
         case T_SYM:
-            if (t->text[0] == '$') return EX_RETURN;
-            if (t->text[0] == '~') return EX_LOOP;
-            exec_sym(t->text[0]);
-            return EX_OK;
-        case T_PRIM: exec_prim(t->text); return EX_OK;
+            if (t->text[0] == '$') r = EX_RETURN;
+            else if (t->text[0] == '~') r = EX_LOOP;
+            else exec_sym(t->text[0]);
+            break;
+        case T_PRIM: exec_prim(t->text); break;
         case T_WORD: {
             Word *w = find_word(dict, dict_count, t->text);
             if (w) exec_body(w->body, w->len);
             else fprintf(stderr, "line %d: unknown word: %s\n", cur_line, t->text);
-            return EX_OK;
+            break;
         }
     }
-    return EX_OK;
+    if (trace_on && r == EX_OK) trace_print();
+    return r;
 }
 
 static void exec_body(Token *toks, int n) {

@@ -56,7 +56,7 @@ cc src/zonac.c -o zonac -lm             # 编译器（依赖 QBE）
 IO：`:type :emit :key :fopen :fread :fwrite :fclose`
 系统：`:time :rand :exit :argc :argv :use :bind`
 C 内存：`:peek8 :peek32 :peek64 :peekd :poke8 :poke32 :poke64 :poked`
-调试：`:stack`
+调试：`:stack` `:trace`
 
 ## 控制流
 
