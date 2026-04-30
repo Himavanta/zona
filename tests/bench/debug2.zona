@@ -1,0 +1,3 @@
+@ allocArr :here :swap :allot ;
+
+5 allocArr :stack

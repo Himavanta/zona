@@ -10,11 +10,6 @@
     { "include": "#conditional" },
     { "include": "#loop" },
     { "include": "#use" },
-    { "include": "#stack-prim" },
-    { "include": "#io-prim" },
-    { "include": "#memory-prim" },
-    { "include": "#system-prim" },
-    { "include": "#debug-prim" },
     { "include": "#primitive" },
     { "include": "#arithmetic" },
     { "include": "#comparison" },
@@ -60,26 +55,6 @@
     "use": {
       "match": ":use",
       "name": "keyword.control.import.zona"
-    },
-    "stack-prim": {
-      "match": ":(dup|drop|swap|over|rot)(?=[\\s'\\)]|$)",
-      "name": "support.function.stack.zona"
-    },
-    "io-prim": {
-      "match": ":(type|emit|key|fopen|fclose|fread|fwrite)(?=[\\s'\\)]|$)",
-      "name": "support.function.io.zona"
-    },
-    "memory-prim": {
-      "match": ":(here|allot|alloc|free)(?=[\\s'\\)]|$)",
-      "name": "entity.name.function.memory.zona"
-    },
-    "system-prim": {
-      "match": ":(time|rand|exit|argc|argv)(?=[\\s'\\)]|$)",
-      "name": "variable.language.system.zona"
-    },
-    "debug-prim": {
-      "match": ":stack(?=[\\s'\\)]|$)",
-      "name": "markup.italic.debug.zona"
     },
     "primitive": {
       "match": ":[a-z]+",

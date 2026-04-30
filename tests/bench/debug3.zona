@@ -1,0 +1,18 @@
+_ 测试 fillLoop 中每一步的栈
+@ allocArr :here :swap :allot ;
+
+_ 写 arr[i]=i，返回 arr
+@ fillAt :over :over + # ;
+
+_ 循环
+@ fillLoop
+  :stack                         _ 看循环入口栈
+  :over :over = ? fillDone       _ i==n?
+  :dup :over                     _ (arr i n arr i)
+  :stack                         _ 看 fillAt 前栈
+  fillAt                         _ 写 arr[i]=i
+  :stack                         _ 看 fillAt 后栈
+  :swap 1 + :swap ~ ;            _ i++ 循环
+@ fillDone :drop :drop :drop ;
+
+5 allocArr :dup 0 :over fillLoop
