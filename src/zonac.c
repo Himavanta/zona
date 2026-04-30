@@ -30,19 +30,54 @@ static int vpeek(void) {
     return vstack[vsp - 1];
 }
 
+/* inline push: emit 7 QBE instructions instead of call $zona_push */
+static void emit_push(int t) {
+    int si = newtmp(), off = newtmp(), off2 = newtmp(), addr = newtmp(), si2 = newtmp();
+    fprintf(out, "    %%t%d =w loadw $sp\n", si);
+    fprintf(out, "    %%t%d =l extsw %%t%d\n", off, si);
+    fprintf(out, "    %%t%d =l mul %%t%d, 8\n", off2, off);
+    fprintf(out, "    %%t%d =l add $stack, %%t%d\n", addr, off2);
+    fprintf(out, "    stored %%t%d, %%t%d\n", t, addr);
+    fprintf(out, "    %%t%d =w add %%t%d, 1\n", si2, si);
+    fprintf(out, "    storew %%t%d, $sp\n", si2);
+}
+
+/* inline pop: emit 7 QBE instructions instead of call $zona_pop, return temp */
+static int emit_pop(void) {
+    int si = newtmp(), si2 = newtmp(), off = newtmp(), off2 = newtmp(), addr = newtmp(), v = newtmp();
+    fprintf(out, "    %%t%d =w loadw $sp\n", si);
+    fprintf(out, "    %%t%d =w sub %%t%d, 1\n", si2, si);
+    fprintf(out, "    storew %%t%d, $sp\n", si2);
+    fprintf(out, "    %%t%d =l extsw %%t%d\n", off, si2);
+    fprintf(out, "    %%t%d =l mul %%t%d, 8\n", off2, off);
+    fprintf(out, "    %%t%d =l add $stack, %%t%d\n", addr, off2);
+    fprintf(out, "    %%t%d =d loadd %%t%d\n", v, addr);
+    return v;
+}
+
+/* inline peek: emit 5 QBE instructions instead of call $zona_peek, return temp */
+static int emit_peek(void) {
+    int si = newtmp(), si2 = newtmp(), off = newtmp(), off2 = newtmp(), addr = newtmp(), v = newtmp();
+    fprintf(out, "    %%t%d =w loadw $sp\n", si);
+    fprintf(out, "    %%t%d =w sub %%t%d, 1\n", si2, si);
+    fprintf(out, "    %%t%d =l extsw %%t%d\n", off, si2);
+    fprintf(out, "    %%t%d =l mul %%t%d, 8\n", off2, off);
+    fprintf(out, "    %%t%d =l add $stack, %%t%d\n", addr, off2);
+    fprintf(out, "    %%t%d =d loadd %%t%d\n", v, addr);
+    return v;
+}
+
 /* flush virtual stack to runtime stack */
 static void vsync(void) {
     for (int i = 0; i < vsp; i++)
-        fprintf(out, "    call $zona_push(d %%t%d)\n", vstack[i]);
+        emit_push(vstack[i]);
     vsp = 0;
 }
 
 /* pop from virtual stack, reloading from runtime if empty */
 static int vpopr(void) {
     if (vsp > 0) return vstack[--vsp];
-    int t = newtmp();
-    fprintf(out, "    %%t%d =d call $zona_pop()\n", t);
-    return t;
+    return emit_pop();
 }
 
 /* ============================================================
@@ -775,7 +810,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
         /* stack ops: operate on virtual stack directly */
         if (strcmp(t->text, ":dup") == 0) {
             if (vsp > 0) { int t = vpeek(); vpush(t); }
-            else { int t = newtmp(); fprintf(out, "    %%t%d =d call $zona_peek()\n", t); vpush(t); }
+            else { vpush(emit_peek()); }
         } else if (strcmp(t->text, ":drop") == 0) {
             vpopr();
         } else if (strcmp(t->text, ":swap") == 0) {
