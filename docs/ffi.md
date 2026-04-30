@@ -17,7 +17,7 @@ closeWindow
 cc game.s -o game -lraylib -lm
 ```
 
-语法和校验规则见 `spec.md` 第九章。
+语法和校验规则见 `spec.md` 第十章。
 
 ## 已实现
 
