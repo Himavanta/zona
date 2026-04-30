@@ -103,6 +103,7 @@ static void exec_prim(const char *name) {
     if (strcmp(name, ":swap") == 0) { double b = pop(), a = pop(); push(b); push(a); return; }
     if (strcmp(name, ":over") == 0) { double b = pop(), a = pop(); push(a); push(b); push(a); return; }
     if (strcmp(name, ":rot") == 0) { double c = pop(), b = pop(), a = pop(); push(b); push(c); push(a); return; }
+    if (strcmp(name, ":clear") == 0) { sp = 0; return; }
 
     /* memory */
     if (strcmp(name, ":here") == 0) { push(here); return; }

@@ -1,0 +1,195 @@
+:use '../std/test.zona'
+:use '../std/math.zona'
+:use '../std/logic.zona'
+
+_ ============================================================
+_ Zona 边缘极限测试
+_ 运行: ./zona tests/edge.zona
+_       ./zonac tests/edge.zona -o /tmp/e && /tmp/e
+_ ============================================================
+
+_ ============================================================
+_ 一、算术边缘
+_ ============================================================
+
+_ 基本恒等式
+'arith-add0' 0 5 + 5 check
+'arith-sub-self' 7 7 - 0 check
+'arith-mul0' 0 99 * 0 check
+'arith-mul1' 1 42 * 42 check
+'arith-mul-neg' -3 4 * -12 check
+'arith-mul-neg2' -3 -4 * 12 check
+'arith-div1' 42 1 / 42 check
+'arith-pow0' 5 0 ^ 1 check
+'arith-pow1' 7 1 ^ 7 check
+'arith-mod-exact' 10 5 % 0 check
+'arith-mod-inexact' 10 3 % 1 check
+
+_ 浮点
+'arith-float-mul' 0.5 2 * 1 check
+
+_ 大数字
+'arith-big' 99999999 1 + 100000000 check
+
+_ ============================================================
+_ 二、栈操作边缘
+_ ============================================================
+
+'stack-dup' 5 :dup + 10 check
+'stack-swap3' 1 2 3 :swap :rot = 1 check
+'stack-over' 3 4 :over = 0 check
+'stack-rot3' 1 2 3 :rot :rot :rot = :swap :drop 1 check
+'stack-drops' 1 2 3 :drop :drop 0 check
+
+@ tuck :swap :over ;
+'stack-tuck' 3 4 tuck :drop :drop 3 check
+
+_ ============================================================
+_ 三、控制流边缘
+_ ============================================================
+
+'ctrl-if-true' 1 ? 42 ! 0 42 check
+'ctrl-if-false' 0 ? 42 ! 0 0 check
+'ctrl-if-only' 1 ? 99 99 check
+
+_ 嵌套条件: 外层真→内层真→99
+@ innerIf 1 ? 99 ! 0 ;
+@ outerIf 1 ? innerIf ! 42 ;
+'ctrl-nest-inner' innerIf 99 check
+'ctrl-nest-outer' outerIf 99 check
+
+_ 外层假→走else=42
+'ctrl-nest-outer2' 0 ? innerIf ! 42 42 check
+
+_ ? 后直接跟数字
+'ctrl-if-num' 1 ? 88 88 check
+
+_ 循环：精确一次
+@ once 1 ? $ ;
+'ctrl-once' once 0 check
+
+_ 循环：零次
+@ never 0 ? $ ~ ;
+'ctrl-never' never 0 check
+
+_ 循环计数: 从0累加到目标
+@ countTo :dup 3 = ? $ 1 + ~ ;
+'ctrl-count' 0 countTo 3 check
+
+_ ============================================================
+_ 四、字定义边缘
+_ ============================================================
+
+_ 空字（不崩溃 + 继续执行）
+@ empty ;
+@ callEmpty empty 42 ;
+'word-empty' callEmpty 42 check
+
+_ 单字符字名
+@ a 42 ;
+'word-1char' a 42 check
+
+_ 重定义覆盖
+@ orig 10 ;
+@ orig 20 ;
+'word-redef' orig 20 check
+
+_ 阶乘递归
+@ fact :dup 1 = ? $ :dup 1 - fact * ;
+'word-fact5' 5 fact 120 check
+'word-fact1' 1 fact 1 check
+
+_ 互递归（奇偶判断）
+@ even :dup 0 = ? 1 ! :dup 1 - odd ;
+@ odd :dup 0 = ? 0 ! :dup 1 - even ;
+'word-even0' 0 even 1 check
+'word-even2' 2 even 1 check
+'word-odd3' 3 odd 1 check
+'word-odd4' 4 odd 0 check
+
+_ ============================================================
+_ 五、字符串边缘
+_ ============================================================
+
+_ 空字符串
+@ emptyStr '' ;
+'str-empty' emptyStr :dup 0 check
+
+_ 转义字符
+@ escN '\n' ;
+'str-esc-n' escN :dup 1 check
+
+@ escQ '\'' ;
+'str-esc-q' escQ :dup 1 check
+
+_ 字符串含下划线（不应为注释）
+@ strUnder 'hello_world' ;
+'str-under' strUnder :dup 11 check
+
+_ 字符串含代码片段
+@ strCode ':use ./x ' ;
+'str-code' strCode :dup 9 check
+
+_ ============================================================
+_ 六、内存边缘
+_ ============================================================
+
+'mem-allot0' 0 :allot :here :dup 0 check
+
+@ memTest 1 :allot 42 :here 1 - # :here 1 - & ;
+'mem-rw' memTest 42 check
+
+@ allocCycle 1 :alloc :dup 99 :over # :dup & :swap :free :drop ;
+'mem-alloc' allocCycle 99 check
+
+_ ============================================================
+_ 七、逻辑和比较边缘
+_ ============================================================
+
+'logic-not1' 1 not 0 check
+'logic-not0' 0 not 1 check
+'logic-not-neg' -1 not 0 check
+
+'logic-and-tt' 1 1 and 1 check
+'logic-and-tf' 1 0 and 0 check
+'logic-and-ff' 0 0 and 0 check
+
+'logic-or-tt' 1 1 or 1 check
+'logic-or-tf' 1 0 or 1 check
+'logic-or-ff' 0 0 or 0 check
+
+_ 比较：0 vs -0
+'cmp-zero-neg0' 0 -0 = 1 check
+
+_ 负数比较
+'cmp-neg-gt' -1 -5 > 1 check
+'cmp-neg-lt' -5 -1 < 1 check
+
+_ ============================================================
+_ 八、组合计算
+_ ============================================================
+
+'comb-nest1' 2 3 4 + * 14 check
+'comb-nest2' 10 3 2 * - 4 check
+
+_ 函数组合
+@ add2 2 + ;
+@ mul3 3 * ;
+@ pipeline add2 mul3 ;
+'comb-pipe' 4 pipeline 18 check
+
+_ 数学恒等式
+'math-sqrt' 4 0.5 ^ 2 check
+'math-assoc' 2 3 4 * * 24 check
+
+_ ============================================================
+_ 九、系统原语
+_ ============================================================
+
+@ timeOk :time 0 > ;
+'sys-time' timeOk 1 check
+
+@ randOk :rand 100 < ;
+'sys-rand' randOk 1 check
+
+'done-edge' :type 10 :emit

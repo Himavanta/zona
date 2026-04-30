@@ -783,6 +783,8 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    call $zona_push(d %%t%d)\n", b);
             fprintf(out, "    call $zona_push(d %%t%d)\n", c);
             fprintf(out, "    call $zona_push(d %%t%d)\n", a);
+        } else if (strcmp(t->text, ":clear") == 0) {
+            fprintf(out, "    storew 0, $sp\n");
         } else if (strcmp(t->text, ":here") == 0) {
             fprintf(out, "    call $zona_here()\n");
         } else if (strcmp(t->text, ":allot") == 0) {
