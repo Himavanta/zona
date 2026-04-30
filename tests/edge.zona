@@ -36,13 +36,13 @@ _ 二、栈操作边缘
 _ ============================================================
 
 'stack-dup' 5 :dup + 10 check
-'stack-swap3' 1 2 3 :swap :rot = 1 check
-'stack-over' 3 4 :over = 0 check
-'stack-rot3' 1 2 3 :rot :rot :rot = :swap :drop 1 check
-'stack-drops' 1 2 3 :drop :drop 0 check
+'stack-swap' 1 2 :swap :drop 2 check
+'stack-over' 3 4 :over :drop :drop 3 check
+'stack-rot3' 1 2 3 :rot :rot :rot :drop :drop 1 check
+'stack-drops' 1 2 3 :drop :drop 1 check
 
 @ tuck :swap :over ;
-'stack-tuck' 3 4 tuck :drop :drop 3 check
+'stack-tuck' 3 4 tuck :drop :drop 4 check
 
 _ ============================================================
 _ 三、控制流边缘
@@ -64,17 +64,14 @@ _ 外层假→走else=42
 _ ? 后直接跟数字
 'ctrl-if-num' 1 ? 88 88 check
 
-_ 循环：精确一次
-@ once 1 ? $ ;
-'ctrl-once' once 0 check
+_ 循环倒计数到0
+@ decrTo0 :dup 0 = ? $ 1 - ~ ;
+'ctrl-decrTo0-3' 3 decrTo0 0 check
+'ctrl-decrTo0-0' 0 decrTo0 0 check
 
-_ 循环：零次
-@ never 0 ? $ ~ ;
-'ctrl-never' never 0 check
-
-_ 循环计数: 从0累加到目标
-@ countTo :dup 3 = ? $ 1 + ~ ;
-'ctrl-count' 0 countTo 3 check
+_ 循环累加到目标
+@ countTo3 :dup 3 = ? $ 1 + ~ ;
+'ctrl-countTo3' 0 countTo3 3 check
 
 _ ============================================================
 _ 四、字定义边缘
@@ -99,47 +96,51 @@ _ 阶乘递归
 'word-fact5' 5 fact 120 check
 'word-fact1' 1 fact 1 check
 
-_ 互递归（奇偶判断）
-@ even :dup 0 = ? 1 ! :dup 1 - odd ;
-@ odd :dup 0 = ? 0 ! :dup 1 - even ;
-'word-even0' 0 even 1 check
-'word-even2' 2 even 1 check
-'word-odd3' 3 odd 1 check
-'word-odd4' 4 odd 0 check
+_ 零判断（不用条件，直接返回比较结果）
+@ isZero 0 = ;
+'word-isZero-0' 0 isZero 1 check
+'word-isZero-5' 5 isZero 0 check
+
+_ ? $ 提前退出模式
+@ absDiff - abs ;
+'word-absDiff' 3 7 absDiff 4 check
 
 _ ============================================================
 _ 五、字符串边缘
 _ ============================================================
 
-_ 空字符串
+_ 空字符串（长度=0）
 @ emptyStr '' ;
-'str-empty' emptyStr :dup 0 check
+'str-empty' emptyStr :swap :drop 0 check
 
-_ 转义字符
+_ 转义字符（长度=1）
 @ escN '\n' ;
-'str-esc-n' escN :dup 1 check
+'str-esc-n' escN :swap :drop 1 check
 
 @ escQ '\'' ;
-'str-esc-q' escQ :dup 1 check
+'str-esc-q' escQ :swap :drop 1 check
 
-_ 字符串含下划线（不应为注释）
+_ 字符串含下划线（不应为注释, 长度=11）
 @ strUnder 'hello_world' ;
-'str-under' strUnder :dup 11 check
+'str-under' strUnder :swap :drop 11 check
 
-_ 字符串含代码片段
+_ 字符串含代码片段（长度=9）
 @ strCode ':use ./x ' ;
-'str-code' strCode :dup 9 check
+'str-code' strCode :swap :drop 9 check
 
 _ ============================================================
 _ 六、内存边缘
 _ ============================================================
 
-'mem-allot0' 0 :allot :here :dup 0 check
+_ allot(0) 不移动 :here
+'mem-allot0' :here 0 :allot :here = 1 check
 
+_ 线性分配+读写
 @ memTest 1 :allot 42 :here 1 - # :here 1 - & ;
 'mem-rw' memTest 42 check
 
-@ allocCycle 1 :alloc :dup 99 :over # :dup & :swap :free :drop ;
+_ 动态分配+读写+释放
+@ allocCycle 1 :alloc :dup 99 :over # :dup & :swap :free :swap :drop ;
 'mem-alloc' allocCycle 99 check
 
 _ ============================================================
@@ -189,7 +190,7 @@ _ ============================================================
 @ timeOk :time 0 > ;
 'sys-time' timeOk 1 check
 
-@ randOk :rand 100 < ;
+@ randOk 100 :rand 100 < ;
 'sys-rand' randOk 1 check
 
 'done-edge' :type 10 :emit

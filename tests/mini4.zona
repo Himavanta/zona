@@ -1,0 +1,22 @@
+:use '../std/test.zona'
+:use '../std/math.zona'
+:use '../std/logic.zona'
+
+@ empty ;
+@ callEmpty empty 42 ;
+'word-empty' callEmpty 42 check
+
+@ a 42 ;
+'word-1char' a 42 check
+
+@ orig 10 ;
+@ orig 20 ;
+'word-redef' orig 20 check
+
+@ fact :dup 1 = ? $ :dup 1 - fact * ;
+'word-fact5' 5 fact 120 check
+'word-fact1' 1 fact 1 check
+
+@ isZero 0 = ;
+'word-isZero-0' 0 isZero 1 check
+'word-isZero-5' 5 isZero 0 check

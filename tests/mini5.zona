@@ -1,0 +1,12 @@
+:use '../std/test.zona'
+:use '../std/math.zona'
+:use '../std/logic.zona'
+
+@ emptyStr '' ;
+'str-empty' emptyStr :dup 0 check
+
+@ escN '\n' ;
+'str-esc-n' escN :dup 1 check
+
+@ strUnder 'hello_world' ;
+'str-under' strUnder :dup 11 check

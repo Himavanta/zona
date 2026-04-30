@@ -1,0 +1,23 @@
+:use '../std/test.zona'
+:use '../std/math.zona'
+:use '../std/logic.zona'
+
+'arith-add0' 0 5 + 5 check
+'arith-sub-self' 7 7 - 0 check
+
+@ tuck :swap :over ;
+'stack-tuck' 3 4 tuck :drop :drop 4 check
+
+'ctrl-if-true' 1 ? 42 ! 0 42 check
+'ctrl-if-false' 0 ? 42 ! 0 0 check
+
+@ innerIf 1 ? 99 ! 0 ;
+@ outerIf 1 ? innerIf ! 42 ;
+'ctrl-nest-inner' innerIf 99 check
+'ctrl-nest-outer' outerIf 99 check
+
+@ decrTo0 :dup 0 = ? $ 1 - ~ ;
+'ctrl-decrTo0-3' 3 decrTo0 0 check
+
+@ countTo3 :dup 3 = ? $ 1 + ~ ;
+'ctrl-countTo3' 0 countTo3 3 check

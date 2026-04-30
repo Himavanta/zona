@@ -1,0 +1,7 @@
+:use '../std/test.zona'
+:use '../std/math.zona'
+:use '../std/logic.zona'
+
+'arith-add0' 0 5 + 5 check
+'arith-sub-self' 7 7 - 0 check
+'arith-mul0' 0 99 * 0 check
