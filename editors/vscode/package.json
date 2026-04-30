@@ -3,7 +3,9 @@
   "displayName": "Zona Language",
   "description": "Syntax highlighting for the Zona programming language",
   "version": "0.1.0",
+  "main": "./extension.js",
   "engines": { "vscode": "^1.60.0" },
+  "activationEvents": ["onLanguage:zona"],
   "categories": ["Programming Languages"],
   "contributes": {
     "languages": [{
