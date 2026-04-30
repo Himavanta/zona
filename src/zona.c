@@ -369,7 +369,9 @@ static void exec_line(Token *toks, int n) {
             dict_count++; continue;
         }
         int start = i;
-        while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@'))
+        while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@')
+                      && !(toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0)
+                      && !(toks[i].type == T_PRIM && strcmp(toks[i].text, ":bind") == 0))
             i++;
         Word tmp = {.len = i - start};
         memcpy(tmp.body, &toks[start], tmp.len * sizeof(Token));

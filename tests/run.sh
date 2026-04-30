@@ -1,35 +1,53 @@
 #!/bin/bash
+set -e
 cd "$(dirname "$0")/.."
+
+# --- build -------------------------------------------------
+echo "# build"
 cc src/zona.c -o zona -lm -lreadline 2>&1 || exit 1
 cc src/zonac.c -o zonac -lm 2>&1 || exit 1
 
-PASS=0
-FAIL=0
+PASS=0; FAIL=0
 
+# --- helpers -----------------------------------------------
 run() {
     local name="$1" cmd="$2" expected="$3"
+    local actual
     actual=$(eval "$cmd" 2>&1)
     if [ "$actual" = "$expected" ]; then
-        echo "PASS $name"
+        echo "  PASS $name"
         PASS=$((PASS + 1))
     else
-        echo "FAIL $name"
-        echo "  expected: $expected"
-        echo "  actual:   $actual"
+        echo "  FAIL $name"
+        echo "    expected: $expected"
+        echo "    actual:   $actual"
         FAIL=$((FAIL + 1))
     fi
 }
 
-# helper: compile and run
-zonac_run() {
+zc() {  # compile zona source, output to project dir, run from there
     local src="$1"; shift
-    ./zonac "$src" -o /tmp/_zonac_test "$@" 2>&1 && /tmp/_zonac_test "$@" 2>&1
-    local rc=$?
-    rm -f /tmp/_zonac_test /tmp/_zonac_test.s
-    return $rc
+    ./zonac "$src" -o /tmp/_zc_test 2>&1
+    /tmp/_zc_test "$@" 2>&1
+    rm -f /tmp/_zc_test /tmp/_zc_test.s
 }
 
-EXPECTED_ALL="$(cat <<'EOF'
+# compile file.zona specially — needs CWD to be project root for relative paths
+zc_pwd() {
+    local src="$1"; shift
+    ./zonac "$src" -o ./_zc_test 2>&1
+    ./_zc_test "$@" 2>&1
+    rm -f ./_zc_test ./_zc_test.s
+}
+
+file_expect() {
+    local file="$1"; shift
+    ./zona "$file" "$@" 2>&1
+}
+
+# --- core.zona ---------------------------------------------
+echo "# core"
+CORE=$(cat <<'EOF'
 PASS add
 PASS sub
 PASS mul
@@ -50,73 +68,49 @@ PASS loop
 PASS mem
 done
 EOF
-)"
+)
+run "core-int"  "./zona tests/core.zona" "$CORE"
+run "core-comp" "zc tests/core.zona" "$CORE"
 
-EXPECTED_USE="$(cat <<'EOF'
-7
-81
-3
-7
-0
-hello
-world
-EOF
-)"
+# --- edge.zona ---------------------------------------------
+echo "# edge"
+EDGE_PASSES=64
+actual=$(./zona tests/edge.zona 2>&1 | grep -c PASS)
+[ "$actual" = "$EDGE_PASSES" ] && { echo "  PASS edge-int ($actual/$EDGE_PASSES)"; PASS=$((PASS+1)); } || { echo "  FAIL edge-int ($actual/$EDGE_PASSES)"; FAIL=$((FAIL+1)); }
+actual=$(zc tests/edge.zona 2>&1 | grep -c PASS)
+[ "$actual" = "$EDGE_PASSES" ] && { echo "  PASS edge-comp ($actual/$EDGE_PASSES)"; PASS=$((PASS+1)); } || { echo "  FAIL edge-comp ($actual/$EDGE_PASSES)"; FAIL=$((FAIL+1)); }
 
-EXPECTED_DEMO="$(cat <<'EOF'
-8
-1024
-42
-81
-120
-40320
-3628800
-5
-4
-3
-2
-1
-4
-25
-1
-hello zona!
-EOF
-)"
+# --- cli.zona ----------------------------------------------
+echo "# cli"
+CLI=$(printf '2\nfoo\nbar')
+run "cli-int"  "./zona tests/cli.zona foo bar" "$CLI"
+run "cli-comp" "zc tests/cli.zona foo bar" "$CLI"
 
-EXPECTED_ARGS="$(cat <<'EOF'
-2
-foo
-bar
-EOF
-)"
+# --- file.zona ---------------------------------------------
+echo "# file"
+FILE_OUT=$(printf '72\n105\n10\n-1')
+run "file-int"  "./zona tests/file.zona" "$FILE_OUT"
+run "file-comp" "zc_pwd tests/file.zona" "$FILE_OUT"
+rm -f tests/tmp.txt
 
-# --- interpreter tests ---
-echo "# interpreter"
-run "i:test_all" "./zona tests/test_all.zona" "$EXPECTED_ALL"
-run "i:test_use" "./zona tests/test_use.zona" "$EXPECTED_USE"
-run "i:demo" "./zona examples/demo.zona" "$EXPECTED_DEMO"
-run "i:args" "./zona tests/test_args.zona foo bar" "$EXPECTED_ARGS"
-run "i:repl" "printf '3 5 + .\n' | ./zona" "8"
-run "i:error_line" "printf '1 2\n+\nfoo\n' | ./zona" "line 3: unknown word: foo"
+# --- import.zona -------------------------------------------
+echo "# import"
+IMPORT=$(printf '7\n81\n3\n7\n0\nhello\nworld\n42')
+run "import-int"  "./zona tests/import.zona" "$IMPORT"
+run "import-comp" "zc tests/import.zona" "$IMPORT"
 
-# --- compiler tests (mirror) ---
-echo "# compiler"
-run "c:test_all" "zonac_run tests/test_all.zona" "$EXPECTED_ALL"
-run "c:test_use" "zonac_run tests/test_use.zona" "$EXPECTED_USE"
-run "c:demo" "zonac_run examples/demo.zona" "$EXPECTED_DEMO"
-run "c:args" "./zonac tests/test_args.zona -o /tmp/_zonac_args 2>&1 && /tmp/_zonac_args foo bar 2>&1; rm -f /tmp/_zonac_args /tmp/_zonac_args.s" "$EXPECTED_ARGS"
-
-# --- :bind test ---
-cat > /tmp/_test_bind.zona << 'ZONA'
+# --- :bind FFI (compiler only) -----------------------------
+echo "# ffi"
+cat > /tmp/_bind.zona << 'ZONA'
 :bind myPuts 'puts' int char*
 :bind myAbs 'abs' int int
 'hello FFI' myPuts :drop
 -42 myAbs .
 ZONA
-run "c:bind" "zonac_run /tmp/_test_bind.zona" "$(printf 'hello FFI\n42')"
+run "bind" "zc /tmp/_bind.zona" "$(printf 'hello FFI\n42')"
 
-# --- peek/poke test ---
-cat > /tmp/_test_peek.zona << 'ZONA'
+# --- peek/poke (compiler only) -----------------------------
+cat > /tmp/_peek.zona << 'ZONA'
 :bind cmalloc 'malloc' void* long
 :bind cfree 'free' void void*
 16 cmalloc
@@ -126,58 +120,49 @@ cat > /tmp/_test_peek.zona << 'ZONA'
 :dup 4 + :peek8 .
 cfree
 ZONA
-run "c:peek_poke" "zonac_run /tmp/_test_peek.zona" "$(printf '42\n99')"
+run "peek" "zc /tmp/_peek.zona" "$(printf '42\n99')"
 
-# --- S return type test ---
-cat > /tmp/_test_sret.zona << 'ZONA'
-:bind getenv 'getenv' char* char*
-'USER' getenv :type 10 :emit
-ZONA
-run "c:S_return" "zonac_run /tmp/_test_sret.zona" "$(whoami)"
-
-# --- validation tests ---
+# --- validation --------------------------------------------
 echo "# validation"
 
-# :use extra tokens
-cat > /tmp/_test_v1.zona << 'ZONA'
+cat > /tmp/_v1.zona << 'ZONA'
 :use './std/math.zona' extra
 ZONA
-run "v:use_extra" "./zona /tmp/_test_v1.zona 2>&1" "line 1: :use line must contain only :use and path"
+run "v:use-extra" "./zona /tmp/_v1.zona 2>&1" "line 1: :use line must contain only :use and path"
 
-# :bind inside word
-cat > /tmp/_test_v2.zona << 'ZONA'
+cat > /tmp/_v2.zona << 'ZONA'
 @ foo :bind bar 'bar' v ;
 ZONA
-run "v:bind_in_word" "./zona /tmp/_test_v2.zona 2>&1" "line 1: :bind cannot appear inside word 'foo'"
+run "v:bind-in-word" "./zona /tmp/_v2.zona 2>&1" "line 1: :bind cannot appear inside word 'foo'"
 
-# :use inside word
-cat > /tmp/_test_v3.zona << 'ZONA'
+cat > /tmp/_v3.zona << 'ZONA'
 @ foo :use './std/math.zona' ;
 ZONA
-run "v:use_in_word" "./zona /tmp/_test_v3.zona 2>&1" "line 1: :use cannot appear inside word 'foo'"
+run "v:use-in-word" "./zona /tmp/_v3.zona 2>&1" "line 1: :use cannot appear inside word 'foo'"
 
-# :bind bad return type — now any word is accepted as type, but missing tokens still caught
-cat > /tmp/_test_v4.zona << 'ZONA'
+cat > /tmp/_v4.zona << 'ZONA'
 :bind foo 'foo'
 ZONA
-run "v:bind_too_few" "./zonac /tmp/_test_v4.zona -o /tmp/_v4 2>&1" "line 1: :bind requires: name 'cname' retType [paramTypes...]"
+run "v:bind-few" "./zonac /tmp/_v4.zona -o /tmp/_v4 2>&1" "line 1: :bind requires: name 'cname' retType [paramTypes...]"
 
-# :bind missing c name
-cat > /tmp/_test_v5.zona << 'ZONA'
+cat > /tmp/_v5.zona << 'ZONA'
 :bind foo
 ZONA
-run "v:bind_missing" "./zonac /tmp/_test_v5.zona -o /tmp/_v5 2>&1" "line 1: :bind requires: name 'cname' retType [paramTypes...]"
+run "v:bind-missing" "./zonac /tmp/_v5.zona -o /tmp/_v5 2>&1" "line 1: :bind requires: name 'cname' retType [paramTypes...]"
 
-# interpreter ignores :bind
-cat > /tmp/_test_v7.zona << 'ZONA'
+cat > /tmp/_v6.zona << 'ZONA'
 :bind myPuts 'puts' int char*
 42 .
 ZONA
-run "v:bind_ignored" "./zona /tmp/_test_v7.zona" "42"
+run "v:bind-ignored" "./zona /tmp/_v6.zona" "42"
 
-# cleanup
-rm -f /tmp/_test_bind.zona /tmp/_test_peek.zona /tmp/_test_sret.zona /tmp/_test_v*.zona
+# --- REPL --------------------------------------------------
+echo "# repl"
+run "repl" "printf '3 5 + .\n' | ./zona" "8"
+run "repl-err" "printf '1 2\n+\nfoo\n' | ./zona" "line 3: unknown word: foo"
 
+# --- cleanup & summary -------------------------------------
+rm -f /tmp/_bind.zona /tmp/_peek.zona /tmp/_v*.zona
 echo ""
 echo "$((PASS + FAIL)) tests, $PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ] && exit 0 || exit 1

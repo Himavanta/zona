@@ -1,6 +1,6 @@
 :use '../std/all.zona'
 
-_ 使用标准库的字
+_ 使用标准库字
 -7 abs .
 9 sq .
 3 7 min .
@@ -8,3 +8,7 @@ _ 使用标准库的字
 1 not .
 'hello' :type nl
 'world' :type nl
+
+_ 重复引入自动跳过
+:use '../std/all.zona'
+-42 abs .

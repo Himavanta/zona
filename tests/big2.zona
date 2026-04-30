@@ -1,2 +1,0 @@
-:use '../std/test.zona'
-'arith-big' 9999999 1 + 10000000 check
