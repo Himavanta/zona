@@ -772,36 +772,22 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
         break;
 
     case T_PRIM:
-        vsync();
+        /* stack ops: operate on virtual stack directly */
         if (strcmp(t->text, ":dup") == 0) {
-            r = newtmp();
-            fprintf(out, "    %%t%d =d call $zona_peek()\n", r);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", r);
+            if (vsp > 0) { int t = vpeek(); vpush(t); }
+            else { int t = newtmp(); fprintf(out, "    %%t%d =d call $zona_peek()\n", t); vpush(t); }
         } else if (strcmp(t->text, ":drop") == 0) {
-            newtmp();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", tmp_id - 1);
+            vpopr();
         } else if (strcmp(t->text, ":swap") == 0) {
-            a = newtmp(); b = newtmp();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", a);
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", b);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", a);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", b);
+            int a = vpopr(), b = vpopr(); vpush(a); vpush(b);
         } else if (strcmp(t->text, ":over") == 0) {
-            a = newtmp(); b = newtmp();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", a);
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", b);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", b);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", a);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", b);
+            int a = vpopr(), b = vpopr(); vpush(b); vpush(a); vpush(b);
         } else if (strcmp(t->text, ":rot") == 0) {
-            int c = newtmp(); b = newtmp(); a = newtmp();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", c);
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", b);
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", a);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", b);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", c);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", a);
-        } else if (strcmp(t->text, ":clear") == 0) {
+            int c = vpopr(), b = vpopr(), a = vpopr(); vpush(b); vpush(c); vpush(a);
+        /* other primitives: sync, then old path */
+        } else {
+        vsync();
+        if (strcmp(t->text, ":clear") == 0) {
             fprintf(out, "    storew 0, $sp\n");
         } else if (strcmp(t->text, ":here") == 0) {
             fprintf(out, "    call $zona_here()\n");
@@ -872,6 +858,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
         } else {
             fprintf(stderr, "compile: unknown primitive: %s\n", t->text);
         }
+        } /* end else (non-stack primitives) */
         break;
 
     case T_WORD:
