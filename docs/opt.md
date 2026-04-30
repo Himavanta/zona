@@ -1,30 +1,28 @@
 # 性能优化计划
 
 > QBE IR 参考文档：https://c9x.me/compile/doc/il.html
-> 所有优化方案在实现前应参考 QBE 文档确认 IR 层面的最佳做法。
+>
+> 关键认识（来自 QBE 文档）：
+> - **QBE 自动修复非 SSA 代码**——不需要严格 SSA 形式，内联展开创建的非 SSA 临时变量会被自动处理
+> - **不要用 phi**——文档明确警告。用栈分配（alloc+store/load）或非 SSA 代码替代
+> - **没有指针类型**——指针就是 `l`（64 位整数），地址计算直接走整数运算
+> - **copy 指令**——`%t =d copy d_X` 单条指令复制常量，已在使用
+> - **alloc4/8/16**——栈分配带对齐，用于结构体构造器
+> - **jnz 直接接比较结果**——不需要先 push 到栈再 pop 出来跳转
 
 ## 已做
 
 ### 阶段一：虚栈骨架 ✅
 
-T_NUM、算术符号走虚栈；控制流边界 vsync。fib(35) 0.48s → 0.29s。
+T_NUM（`%t =d copy d_X` + vpush）、算术符号（vpopr + QBE 算术指令 + vpush）走虚栈。控制流边界 vsync。fib(35) 0.48s → 0.29s。
 
 ### 阶段二：栈原语虚栈化 ✅
 
-`:dup` `:swap` `:drop` `:over` `:rot` 在虚栈上操作，零运行时指令生成。fib(35) 0.29s → 0.26s。
+`:dup` `:swap` `:drop` `:over` `:rot` 在虚栈上操作，零运行时指令。fib(35) 0.29s → 0.26s。
 
 ### 阶段三：运行时函数内联展开 ✅
 
-push/pop/peek 的 QBE 指令（各 7 行）直接展开到调用点，消除 call/ret 开销。QBE 自动消除相邻 store-load 冗余对。
-
-- `emit_push(t)`: 展开 store + sp++ 指令
-- `emit_pop()`: 展开 sp-- + load 指令，返回 temp
-- `emit_peek()`: 展开 sp-1 + load 指令（不修改 sp），返回 temp
-- `vsync()`: 循环调用 emit_push
-- `vpopr()`: 虚栈空时调用 emit_pop
-- `:dup` 虚栈空时调用 emit_peek
-
-fib(35) 0.26s → 0.16s（1.6x），loop(10M) 0.07s → 0.05s。
+push/pop/peek 的 QBE 指令直接展开到调用点。QBE 的非 SSA 修复能力处理展开产生的大量临时变量。fib(35) 0.26s → 0.16s，loop(10M) 0.07s → 0.05s。
 
 ### 累计效果
 
@@ -33,40 +31,71 @@ fib(35) 0.26s → 0.16s（1.6x），loop(10M) 0.07s → 0.05s。
 | fib(35) | 0.48s | 0.16s | **3x** |
 | loop(10M) | 0.08s | 0.05s | **1.6x** |
 
-编译器 vs 解释器：fib 从 3.2x → 9.7x 加速。性能从 Ruby 级 → Node.js 和 Python 之间。
+---
+
+## 下一步（按优先级，基于 QBE 文档重新审视）
+
+### 阶段四：比较-跳转融合 ⏳
+
+**QBE 依据**：`jnz` 直接接 `w` 类型条件值，不需要中间 push/pop。比较指令返回 `w`（0 或 1），可以直接喂给 `jnz`。
+
+当前 `0 = ? $`（循环出口惯用模式）的编译路径：
+```
+vpush 0 → vpopr ×2 → ceqd → swtof → vpush → vsync → jnz → ret
+```
+
+优化后直接：
+```
+%c =w ceqd %x, d_0     ← 比较在临时变量上
+jnz %c, @ret, @next    ← 直接跳转，不经过栈
+```
+
+不产生任何 push/pop 指令。这覆盖了 Zona 中最频繁的控制流模式：
+
+| Zona 模式 | QBE 融合 |
+|-----------|----------|
+| `0 = ? $` | `ceqd %x, d_0` → `jnz @ret` |
+| `0 = ? ~` | `ceqd %x, d_0` → `jnz @loop` |
+| `n < ? $` | `cltd %x, d_n` → `jnz @ret` |
+| `n = ? $` | `ceqd %x, d_n` → `jnz @ret` |
+
+### 阶段五：内存操作虚栈化 ⏳
+
+**QBE 依据**：`stored`/`loadd` 直接在 `(d, m)` 上操作，不需要运行时函数。`m` 就是 `l` 类型整数（地址）。
+
+当前 `&` 和 `#`：vsync → call $zona_mem_load/store。
+
+优化后：
+- `#` ( value addr -- )：vpopr 获取值和地址，直接 `stored %val, %addr`
+- `&` ( addr -- value )：vpopr 获取地址，直接 `%v =d loadd %addr`，vpush
+
+不需要 vsync，不需要运行时函数调用。合并 `:here` + 算术计算地址的场景，整个内存操作变成几条 QBE 指令。
+
+### 阶段六：小字内联 ⏳
+
+body ≤ 8 token、非递归的字直接在调用点展开。前面阶段已经把调用开销降到很低，内联的增量价值变成"扩大直线代码区域长度"。
+
+**QBE 依据**：没有 `inline` 标注，内联必须在 QBE 上层（我们的编译器）完成。展开后 QBE 的非 SSA 修复会处理临时变量冲突。
 
 ---
 
-## 下一步（按优先级）
+## 低成本优化
 
-### 阶段四：超指令 ⏳
+### 全局变量直接引用
 
-识别 Zona 惯用 token 序列，编译时替换为高效版本：
+`:here` 的地址用 `loadw $here` 直接获取，不调用 `$zona_here()`。`:allot` 用 `storew` 直接写 `$here`。
 
-| 序列 | 替换 | 场景 |
-|------|------|------|
-| `:dup +` | dup-add | `:dup n +` 极常见 |
-| `1 - ~` | dec-loop | 倒计数循环 |
-| `:dup 0 = ? $` | exit-if-zero | 循环出口 |
-| `:swap :drop` | nip | 标准库已有 |
-| `:dup 0 < ? neg` | abs | 标准库 abs |
+### 消除死运行时函数
 
-前面阶段已消除 push/pop 调用，超指令进一步压缩多条 QBE 指令为单条。
-
-### 阶段五：小字内联 ⏳
-
-body ≤ 8 token、非递归的字直接在调用点展开。扩大"直线代码区域"。
-
-### 解释器：栈顶缓存 + 首字符跳表
-
-- 栈顶 3 个值放 C 局部变量（硬件寄存器）
-- `exec_prim` 的 strcmp 链改成首字符 switch
+`$zona_peek` 已无调用点（`:dup` 改用 emit_peek）。后续优化可能让 `$zona_push`/`$zona_pop` 也变成死代码。保留在 emit_runtime 中作为降级路径，当虚栈追踪失效时使用。
 
 ---
 
 ## 更远的方向
 
 - 调用约定优化：静态分析栈效应 `(in → out)`，调用时只同步参数
-- 类型特化：整数走 `w` 指令，浮点走 `d`
+- 类型特化：整数走 `w` 指令（QBE 有完整的 `w`/`l` 整数指令集），浮点走 `d`
+- 结构体栈分配：QBE 的 `alloc4`/`alloc8`/`alloc16` 用于构造器方案 B
 - 生成 C（release 模式）
 - 字节级字符串存储
+- 解释器：栈顶缓存 + 首字符跳表
