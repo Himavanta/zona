@@ -30,6 +30,21 @@ static int vpeek(void) {
     return vstack[vsp - 1];
 }
 
+/* flush virtual stack to runtime stack */
+static void vsync(void) {
+    for (int i = 0; i < vsp; i++)
+        fprintf(out, "    call $zona_push(d %%t%d)\n", vstack[i]);
+    vsp = 0;
+}
+
+/* pop from virtual stack, reloading from runtime if empty */
+static int vpopr(void) {
+    if (vsp > 0) return vstack[--vsp];
+    int t = newtmp();
+    fprintf(out, "    %%t%d =d call $zona_pop()\n", t);
+    return t;
+}
+
 /* ============================================================
    Dictionary (compile time)
    ============================================================ */
@@ -641,16 +656,19 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
     int a, b, r;
 
     switch (t->type) {
-    case T_NUM:
-        fprintf(out, "    call $zona_push(d d_%.17g)\n", t->num);
-        break;
-
-    case T_STR: {
-        int sid = add_str(t->text);
-        int len = (int)strlen(t->text);
-        fprintf(out, "    call $zona_store_str(l $str%d, w %d)\n", sid, len);
+    case T_NUM: {
+        int vt = newtmp();
+        fprintf(out, "    %%t%d =d copy d_%.17g\n", vt, t->num);
+        vpush(vt);
         break;
     }
+
+    case T_STR:
+        vsync();
+        { int sid = add_str(t->text);
+        int len = (int)strlen(t->text);
+        fprintf(out, "    call $zona_store_str(l $str%d, w %d)\n", sid, len);
+        break; }
 
     case T_SYM:
         switch (t->text[0]) {
@@ -663,29 +681,24 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                 case '/': op = "div"; break;
                 case '%': default: op = "rem"; break;
             }
-            b = newtmp(); a = newtmp(); r = newtmp();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", b);
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", a);
+            int vb = vpopr(), va = vpopr(), vr = newtmp();
             if (t->text[0] == '%') {
-                /* fmod: a - floor(a/b)*b */
                 int d1 = newtmp(), f1 = newtmp(), f2 = newtmp(), m1 = newtmp();
-                fprintf(out, "    %%t%d =d div %%t%d, %%t%d\n", d1, a, b);
+                fprintf(out, "    %%t%d =d div %%t%d, %%t%d\n", d1, va, vb);
                 fprintf(out, "    %%t%d =l dtosi %%t%d\n", f1, d1);
                 fprintf(out, "    %%t%d =d sltof %%t%d\n", f2, f1);
-                fprintf(out, "    %%t%d =d mul %%t%d, %%t%d\n", m1, f2, b);
-                fprintf(out, "    %%t%d =d sub %%t%d, %%t%d\n", r, a, m1);
+                fprintf(out, "    %%t%d =d mul %%t%d, %%t%d\n", m1, f2, vb);
+                fprintf(out, "    %%t%d =d sub %%t%d, %%t%d\n", vr, va, m1);
             } else {
-                fprintf(out, "    %%t%d =d %s %%t%d, %%t%d\n", r, op, a, b);
+                fprintf(out, "    %%t%d =d %s %%t%d, %%t%d\n", vr, op, va, vb);
             }
-            fprintf(out, "    call $zona_push(d %%t%d)\n", r);
+            vpush(vr);
             break;
         }
         case '^': {
-            b = newtmp(); a = newtmp(); r = newtmp();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", b);
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", a);
-            fprintf(out, "    %%t%d =d call $pow(d %%t%d, d %%t%d)\n", r, a, b);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", r);
+            int vb = vpopr(), va = vpopr(), vr = newtmp();
+            fprintf(out, "    %%t%d =d call $pow(d %%t%d, d %%t%d)\n", vr, va, vb);
+            vpush(vr);
             break;
         }
         case '>': case '<': case '=': {
@@ -695,24 +708,26 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                 case '<': cmp = "cltd"; break;
                 case '=': default: cmp = "ceqd"; break;
             }
-            b = newtmp(); a = newtmp(); r = newtmp(); int rd = newtmp();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", b);
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", a);
-            fprintf(out, "    %%t%d =w %s %%t%d, %%t%d\n", r, cmp, a, b);
-            fprintf(out, "    %%t%d =d swtof %%t%d\n", rd, r);
-            fprintf(out, "    call $zona_push(d %%t%d)\n", rd);
+            int vb = vpopr(), va = vpopr(), vr = newtmp(), vrd = newtmp();
+            fprintf(out, "    %%t%d =w %s %%t%d, %%t%d\n", vr, cmp, va, vb);
+            fprintf(out, "    %%t%d =d swtof %%t%d\n", vrd, vr);
+            vpush(vrd);
             break;
         }
         case '.':
+            vsync();
             fprintf(out, "    call $zona_print()\n");
             break;
         case '&':
+            vsync();
             fprintf(out, "    call $zona_mem_load()\n");
             break;
         case '#':
+            vsync();
             fprintf(out, "    call $zona_mem_store()\n");
             break;
         case '?': {
+            vsync();
             /* conditional: ? X or ? X ! Y */
             (*ip)++;
             if (*ip >= n) return;
@@ -726,6 +741,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    jnz %%t%d, @L%d, @L%d\n", cw, lt, lf);
             fprintf(out, "@L%d\n", lt);
             compile_token(toks, n, ip, in_word);
+            vsync(); /* flush true-branch result */
             fprintf(out, "    jmp @L%d\n", le);
             fprintf(out, "@L%d\n", lf);
             if (has_else) {
@@ -734,27 +750,29 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
                 if (*ip < n)
                     compile_token(toks, n, ip, in_word);
             }
+            vsync(); /* flush false-branch result */
             fprintf(out, "    jmp @L%d\n", le);
             fprintf(out, "@L%d\n", le);
             return; /* don't increment ip again */
         }
-        case '$': {
-            int dead = newlbl();
+        case '$':
+            vsync();
+            { int dead = newlbl();
             fprintf(out, "    ret\n");
             fprintf(out, "@Ldead%d\n", dead);
-            break;
-        }
-        case '~': {
-            int dead = newlbl();
+            break; }
+        case '~':
+            vsync();
+            { int dead = newlbl();
             fprintf(out, "    jmp @Lstart\n");
             fprintf(out, "@Ldead%d\n", dead);
-            break;
-        }
+            break; }
         default: break;
         }
         break;
 
     case T_PRIM:
+        vsync();
         if (strcmp(t->text, ":dup") == 0) {
             r = newtmp();
             fprintf(out, "    %%t%d =d call $zona_peek()\n", r);
@@ -856,8 +874,9 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
         }
         break;
 
-    case T_WORD: {
-        Word *w = find_word(dict, dict_count, t->text);
+    case T_WORD:
+        vsync();
+        { Word *w = find_word(dict, dict_count, t->text);
         if (w) {
             fprintf(out, "    call $zona_%s()\n", t->text);
         } else {
@@ -968,6 +987,7 @@ static void compile_body(Token *toks, int n, int in_word) {
         compile_token(toks, n, &ip, in_word);
         ip++;
     }
+    vsync();
 }
 
 /* ============================================================
