@@ -21,7 +21,10 @@ time /tmp/_loop
 rm -f /tmp/_loop /tmp/_loop.s
 
 echo ""
-echo "=== 参考 C fib(35) ==="
+echo "=== 参考 ==="
+echo ""
+
+echo "C fib(35):"
 cat > /tmp/_cfib.c << 'EOF'
 #include <stdio.h>
 double fib(double n) { return n<2?n:fib(n-1)+fib(n-2); }
@@ -32,5 +35,9 @@ time /tmp/_cfib
 rm -f /tmp/_cfib /tmp/_cfib.c
 
 echo ""
-echo "=== 参考 Python fib(35) ==="
+echo "Node.js fib(35):"
+time node -e 'function f(n){return n<2?n:f(n-1)+f(n-2)};console.log(f(35))'
+
+echo ""
+echo "Python fib(35):"
 time python3 -c 'def f(n):return n if n<2 else f(n-1)+f(n-2);print(f(35))'
