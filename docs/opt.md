@@ -55,15 +55,11 @@ fib(35) 稳定在 0.16s——因递归调用开销主导，此阶段收益边际
 
 ### 阶段五：内存操作虚栈化 ⏳
 
-**QBE 依据**：`stored`/`loadd` 直接在 `(d, m)` 上操作，不需要运行时函数。`m` 就是 `l` 类型整数（地址）。
+**QBE 依据**：`stored`/`loadd` 直接操作 `(d, m)`。
 
-当前 `&` 和 `#`：vsync → call $zona_mem_load/store。
+**已尝试，已回退**：直接 loadd/stored 无法处理堆地址（≥65536 的 `:alloc` 地址需要 `$zona_mem_at` 解析）。保留 call 方案。
 
-优化后：
-- `#` ( value addr -- )：vpopr 获取值和地址，直接 `stored %val, %addr`
-- `&` ( addr -- value )：vpopr 获取地址，直接 `%v =d loadd %addr`，vpush
-
-不需要 vsync，不需要运行时函数调用。合并 `:here` + 算术计算地址的场景，整个内存操作变成几条 QBE 指令。
+**可行替代**：将 `$zona_mem_at` 内联展开（类似 push/pop 内联），而非直接 loadd/stored。或者仅对静态内存（`:here` 区域）使用 loadd/stored。
 
 ### 阶段六：小字内联 ⏳
 
