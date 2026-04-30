@@ -762,16 +762,15 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             fprintf(out, "    call $zona_mem_store()\n");
             break;
         case '?': {
-            vsync();
-            /* conditional: ? X or ? X ! Y */
             (*ip)++;
             if (*ip >= n) return;
             int has_else = (*ip + 2 <= n &&
                             toks[*ip + 1].type == T_SYM &&
                             toks[*ip + 1].text[0] == '!');
-            int cond = newtmp(), cw = newtmp();
+            /* if only condition on vstack, consume directly; else sync all */
+            int cond = (vsp == 1) ? vpopr() : (vsync(), emit_pop());
+            int cw = newtmp();
             int lt = newlbl(), lf = newlbl(), le = newlbl();
-            fprintf(out, "    %%t%d =d call $zona_pop()\n", cond);
             fprintf(out, "    %%t%d =w dtosi %%t%d\n", cw, cond);
             fprintf(out, "    jnz %%t%d, @L%d, @L%d\n", cw, lt, lf);
             fprintf(out, "@L%d\n", lt);
@@ -788,6 +787,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
             vsync(); /* flush false-branch result */
             fprintf(out, "    jmp @L%d\n", le);
             fprintf(out, "@L%d\n", le);
+            vsp = 0; /* merge point */
             return; /* don't increment ip again */
         }
         case '$':
