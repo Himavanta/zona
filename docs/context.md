@@ -50,7 +50,7 @@ cc src/zonac.c -o zonac -lm             # 编译器（依赖 QBE）
 
 ## 系统原语完整列表
 
-栈：`:dup :drop :swap :over :rot`
+栈：`:dup :drop :swap :over :rot :clear`
 内存：`:here :allot :alloc :free`
 IO：`:type :emit :key :fopen :fread :fwrite :fclose`
 系统：`:time :rand :exit :argc :argv :use :bind`
@@ -105,7 +105,7 @@ QBE 查找：直接使用 PATH 中的 `qbe`。
 
 | 类别 | 原语 | 状态 |
 |------|------|------|
-| 栈 | `:dup :drop :swap :over :rot` | ✅ |
+| 栈 | `:dup :drop :swap :over :rot :clear` | ✅ |
 | 内存 | `:here :allot :alloc :free` | ✅ |
 | IO | `:type :emit :key` | ✅ |
 | IO | `:fopen :fread :fwrite :fclose` | ✅ |

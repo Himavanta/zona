@@ -642,7 +642,7 @@ static void compile_token(Token *toks, int n, int *ip, int in_word) {
 
     switch (t->type) {
     case T_NUM:
-        fprintf(out, "    call $zona_push(d d_%g)\n", t->num);
+        fprintf(out, "    call $zona_push(d d_%.17g)\n", t->num);
         break;
 
     case T_STR: {
@@ -1040,7 +1040,11 @@ static void collect_toplevel(Token *toks, int n) {
                 fprintf(stderr, "@ must be followed by a word name\n"); return;
             }
             if (dict_count >= DICT_MAX) { fprintf(stderr, "dictionary full\n"); return; }
-            Word *w = &dict[dict_count];
+            /* reuse slot if redefining (same name) */
+            int si = dict_count;
+            for (int j = 0; j < dict_count; j++)
+                if (strcmp(dict[j].name, toks[i].text) == 0) { si = j; break; }
+            Word *w = &dict[si];
             strncpy(w->name, toks[i].text, 255);
             i++; w->len = 0;
             while (i < n) {
@@ -1049,7 +1053,7 @@ static void collect_toplevel(Token *toks, int n) {
                 w->body[w->len++] = toks[i++];
             }
             check_body_no_directives(w->body, w->len, w->name);
-            dict_count++;
+            if (si == dict_count) dict_count++;
             continue;
         }
         /* loose code: collect until next @ or :bind/:use */
