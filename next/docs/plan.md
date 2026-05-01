@@ -1,10 +1,10 @@
-# Zona V2 实施计划
+# Zona Next 实施计划
 
-> 本文档是 V2 开发的唯一执行依据。`v2/` 目录下的其他文档为参考背景。语言规范以 `v2/spec.md` 为准。
+> 本文档是 Next 版本开发的唯一执行依据。`next/docs/` 下的其他文档为参考背景。语言规范以 `next/docs/spec.md` 为准。
 
 ## 语言设计锁定
 
-V2 相对 V1 的语言变更，详见 `v2/spec.md`。核心变更：
+Next 相对 V1 的语言变更，详见 `next/docs/spec.md`。核心变更：
 
 1. **栈效应声明（强制）** — `@ 名称 输入:输出 body ;`，`:` 做签名分隔符
 2. **数字类型分离** — `35` 整数(i)，`35.0` 浮点(d)，类型不匹配编译错误
@@ -49,7 +49,7 @@ V2 相对 V1 的语言变更，详见 `v2/spec.md`。核心变更：
 
 **目标**：能运行 fib，验证栈效应声明 + 类型分离的核心价值。
 
-**产出**：`src/zona2.c` — V2 解释器
+**产出**：`next/src/zona.c` — Next 解释器
 
 **实现内容**：
 
@@ -106,7 +106,7 @@ _ fib
 
 **目标**：将 token 流解释升级为字节码执行，大幅提升性能。
 
-**产出**：在 `src/zona2.c` 中新增字节码编译器和 VM
+**产出**：在 `next/src/zona.c` 中新增字节码编译器和 VM
 
 **实现内容**：
 
@@ -171,7 +171,7 @@ _ fib
 
 **目标**：补齐编程所需的全部基础原语。
 
-**产出**：在 `src/zona2.c` 中新增原语
+**产出**：在 `next/src/zona.c` 中新增原语
 
 **实现内容**：
 
@@ -220,10 +220,10 @@ _ fib
 
 **目标**：用 Zona V2 自身重写标准库。
 
-**产出**：`std2/` 目录
+**产出**：`next/std/` 目录
 
 ```
-std2/
+next/std/
   math.zona    _ abs, neg, sq, min, max
   logic.zona   _ not, and, or
   stack.zona   _ nip, tuck
@@ -240,7 +240,7 @@ std2/
 
 **目标**：字节码 → ARM64 汇编翻译器，原生性能。
 
-**产出**：`src/zonac2.c`
+**产出**：`next/src/zonac.c`
 
 **实现内容**：
 
@@ -315,20 +315,17 @@ std2/
 ## 文件结构规划
 
 ```
-v2/
-  spec.md           _ V2 语言规范
-  plan.md           _ 本文档
-  perf-analysis.md  _ 参考：性能分析
-  redesign.md       _ 参考：重设计讨论
-  interpreter.md    _ 参考：解释器设计
-
-src/
-  zona.h            _ V1 共享前端（保留）
-  zona.c            _ V1 解释器（保留）
-  zonac.c           _ V1 编译器（保留）
-  zona2.c           _ V2 解释器（阶段 1-3）
-  zonac2.c          _ V2 编译器（阶段 6）
-
-std2/               _ V2 标准库（阶段 5）
-tests2/             _ V2 测试
+next/                   _ Next 版本独立开发目录
+  docs/
+    spec.md             _ 语言规范
+    plan.md             _ 本文档
+    perf-analysis.md    _ 参考：性能分析
+    redesign.md         _ 参考：重设计讨论
+    interpreter.md      _ 参考：解释器设计
+  src/
+    zona.c              _ Next 解释器（阶段 1-3）
+    zonac.c             _ Next 编译器（阶段 6）
+  std/                  _ Next 标准库（阶段 5）
+  tests/                _ Next 测试
+  examples/             _ Next 示例
 ```
