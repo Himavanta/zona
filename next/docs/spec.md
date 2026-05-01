@@ -343,19 +343,35 @@ task.pid        _ 结构体字段
 `:struct` 在顶层声明结构体类型，独占一行，无结束符号：
 
 ```
-:struct Point x d y d
+:struct Point x double y double
+:struct Color r char g char b char a char
+:struct Rect x float y float w float h float
 ```
 
-格式：`:struct` + 名称 + 字段名/类型对
+格式：`:struct` + 名称 + 字段名/C类型对
 
 规则：
 - 必须在顶层声明，不能在字定义（`@ ... ;`）内声明
-- 字段必须有名字和类型标记（`i` / `d` / `p`）
-- 与 `:use` 同级，属于编译期声明
+- 字段必须有名字和 C 类型名（与 `:bind` 使用同一套类型词）
+- 与 `:use` `:bind` 同级，属于编译期声明
+
+支持的 C 类型名（与 `:bind` 一致）：
+
+| C 类型名 | 字节数 | Zona 类型映射 | 栈效应中的标记 |
+|----------|--------|--------------|---------------|
+| `char` | 1 | 整数 | `i` |
+| `int` | 4 | 整数 | `i` |
+| `long` | 8 | 整数 | `i` |
+| `float` | 4 | 浮点 | `d` |
+| `double` | 8 | 浮点 | `d` |
+| `void*` | 8 | 指针 | `p` |
+| `char*` | 8 | 指针 | `p` |
+
+字段读取/写入时，值自动按 Zona 类型系统处理：整数族 → `i`，浮点族 → `d`，指针族 → `p`。
 
 ### 9.2 自动生成的字
 
-声明 `:struct Point x d y d` 后，编译器自动生成：
+声明 `:struct Point x double y double` 后，编译器自动生成：
 
 | 字 | 签名 | 语义 |
 |------|------|------|

@@ -388,21 +388,23 @@ next/                   _ Next 版本独立开发目录
 
 ### 待决 2：结构体语法 ✅ 已决定
 
-**决策**：`:struct` 顶层声明，独占一行，无结束符号，字段必须有名字和类型。
+**决策**：`:struct` 顶层声明，独占一行，无结束符号，字段必须有名字和 C 类型名。
 
 ```
-:struct Point x d y d
+:struct Point x double y double
+:struct Color r char g char b char a char
 ```
 
 语法细节：
-- 格式：`:struct` + 名称 + 字段名/类型对
+- 格式：`:struct` + 名称 + 字段名/C类型对
 - 必须在顶层声明，不能在字定义内声明
-- 与 `:use` 同级，属于编译期声明
+- 与 `:use` `:bind` 同级，属于编译期声明
+- 字段类型使用 C 类型名（`int` `long` `double` `float` `char` `void*` `char*`），与 `:bind` 保持一致
+- C 类型到 Zona 类型的映射：`char`/`int`/`long` → `i`，`float`/`double` → `d`，`void*`/`char*` → `p`
 - 自动生成 `Point.new :p`（构造器）、`Point.free p:`（析构器）
 - 字段访问 `Point.x` 与模块成员访问统一为 `T_MEMBER` 单一 token
 - 自动生成字段读取字 `Point.x p:d`、`Point.y p:d`
-
-**未解决**：字段写入语法 — `!` 已用于 else 分支标记，`point.x!` 写法有冲突。留待后续阶段设计。
+- 字段写入自动生成，命名在字段名后加 `!`（如 `Point.x!`），具体与 else `!` 是否冲突取决于 tokenizer 实现
 
 **影响**：`.` 的解析规则取决于此。如果 `point.x` 是一个词法单元（tokenizer 输出 `T_MEMBER_ACCESS`），还是三个词元（`point` `.` `x`），解释器的实现路径完全不同。
 
