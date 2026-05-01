@@ -11,6 +11,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <time.h>
+#include <unistd.h>
 
 /* ============================================================
    类型系统
@@ -320,18 +321,40 @@ static Type ts_pop(TypeStack *ts) {
 static int ts_len(const TypeStack *ts) { return ts->n; }
 
 /* ============================================================
+   Module system — lightweight namespace over global dict
+   ============================================================ */
+
+#define MODULE_MAX 64
+
+typedef struct Module {
+    char name[256];
+    char file[512];  /* source file path for dedup */
+} Module;
+
+static Module modules[MODULE_MAX];
+static int    module_count = 0;
+static Module *current_module = NULL;  /* module being loaded */
+
+static Module *find_module(const char *name) {
+    for (int i = module_count - 1; i >= 0; i--)
+        if (strcmp(modules[i].name, name) == 0) return &modules[i];
+    return NULL;
+}
+
+/* ============================================================
    Word definition
    ============================================================ */
 
-#define DICT_MAX 4096
-#define WORD_BODY_MAX 1024
+#define DICT_MAX 1024
+#define WORD_BODY_MAX 256
 
-typedef struct {
+typedef struct Word {
     char name[256];
     Sig  sig;
     Token body[WORD_BODY_MAX];
     int  len;
     int  is_recursive;  /* 1 if word calls itself */
+    Module *module;  /* NULL = global, else belongs to module */
 } Word;
 
 static Word dict[DICT_MAX];
@@ -340,6 +363,15 @@ static int  dict_count = 0;
 static Word *find_word(const char *name) {
     for (int i = dict_count - 1; i >= 0; i--)
         if (strcmp(dict[i].name, name) == 0) return &dict[i];
+    return NULL;
+}
+
+/* Find a word defined in a specific module */
+static Word *find_word_in_module(Module *m, const char *name) {
+    for (int i = dict_count - 1; i >= 0; i--) {
+        if (strcmp(dict[i].name, name) == 0 && dict[i].module == m)
+            return &dict[i];
+    }
     return NULL;
 }
 
@@ -470,6 +502,12 @@ static int verify_token(Token *t, TypeStack *ts, const char *word_name, int *err
             /* no stack effect — prints, doesn't consume */
         } else if (strcmp(t->text, ":words") == 0) {
             /* no stack effect — prints, doesn't consume */
+        } else if (strcmp(t->text, ":see") == 0) {
+            Type a = ts_pop(ts);
+            if (a != TY_P) {
+                fprintf(stderr, "line %d: :see requires p type (string), got %s\n", t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
         } else if (strcmp(t->text, ":clear") == 0) {
             /* clears stack — verification can't track this statically.
                For safety, treat as consuming all and producing nothing.
@@ -568,9 +606,43 @@ static int verify_token(Token *t, TypeStack *ts, const char *word_name, int *err
         break;
     }
 
-    case T_MEMBER:
-        /* member access — not yet implemented for struct, treat as word for module */
+    case T_MEMBER: {
+        /* split module.word */
+        char mod_name[256], w_name[256];
+        char *dot = strchr(t->text, '.');
+        if (!dot) break;
+        int mlen = (int)(dot - t->text);
+        memcpy(mod_name, t->text, mlen); mod_name[mlen] = '\0';
+        strcpy(w_name, dot + 1);
+
+        Module *m = find_module(mod_name);
+        if (!m) {
+            fprintf(stderr, "line %d: unknown module '%s'\n", t->line, mod_name);
+            *error_line = t->line; return 0;
+        }
+        Word *mw = find_word_in_module(m, w_name);
+        if (!mw) {
+            fprintf(stderr, "line %d: '%s' has no word '%s'\n", t->line, mod_name, w_name);
+            *error_line = t->line; return 0;
+        }
+        /* consume inputs, produce outputs — same logic as T_WORD */
+        if (ts_len(ts) < mw->sig.n_in) {
+            fprintf(stderr, "line %d: stack underflow calling '%s' (need %d, have %d)\n",
+                    t->line, t->text, mw->sig.n_in, ts_len(ts));
+            *error_line = t->line; return 0;
+        }
+        for (int i = mw->sig.n_in - 1; i >= 0; i--) {
+            Type got = ts_pop(ts);
+            if (got != mw->sig.in[i]) {
+                fprintf(stderr, "line %d: type mismatch in arg %d of '%s': expected %s, got %s\n",
+                        t->line, i, t->text, type_name(mw->sig.in[i]), type_name(got));
+                *error_line = t->line; return 0;
+            }
+        }
+        for (int i = 0; i < mw->sig.n_out; i++)
+            ts_push(ts, mw->sig.out[i]);
         break;
+    }
     }
 
     return 1;
@@ -593,7 +665,7 @@ static int verify_word(Word *w) {
         Token *t = &w->body[ip];
 
         if (t->type == T_SYM && t->text[0] == '?') {
-            /* conditional: pop condition (l type), then verify branches */
+            /* conditional: pop condition (must be l type), then verify branches */
             Type cond_type = ts_pop(&ts);
             if (cond_type != TY_L) {
                 fprintf(stderr, "line %d: ? condition must be l type, got %s\n",
@@ -873,6 +945,35 @@ static void exec_prim(const char *name) {
         }
         return;
     }
+    if (strcmp(name, ":see") == 0) {
+        rtpop();
+        char *ptr = stack[--sp].p;
+        int64_t len = *(int64_t *)(ptr - 8);
+        /* look up word by name (from string on stack) */
+        Word *w = NULL;
+        for (int i = dict_count - 1; i >= 0; i--) {
+            if ((int64_t)strlen(dict[i].name) == len &&
+                memcmp(dict[i].name, ptr, (size_t)len) == 0) {
+                w = &dict[i]; break;
+            }
+        }
+        if (!w) {
+            printf("unknown word: %.*s\n", (int)len, ptr);
+            return;
+        }
+        printf("@ %s (", w->name);
+        for (int i = 0; i < w->sig.n_in; i++)  putchar(w->sig.in[i]);
+        printf(":");
+        for (int i = 0; i < w->sig.n_out; i++) putchar(w->sig.out[i]);
+        printf(") ");
+        for (int i = 0; i < w->len; i++) {
+            Token *t = &w->body[i];
+            if (t->type == T_STR) printf("'%s' ", t->text);
+            else printf("%s ", t->text);
+        }
+        printf(";\n");
+        return;
+    }
     if (strcmp(name, ":clear") == 0) {
         sp = 0; rt_sp = 0;
         return;
@@ -1063,10 +1164,22 @@ static enum ExecResult exec_one(Token *t) {
         else { fprintf(stderr, "line %d: unknown word: %s\n", t->line, t->text); exit(1); }
         break;
     }
-    case T_MEMBER:
-        /* module member access — not yet implemented */
-        fprintf(stderr, "line %d: member access not yet implemented: %s\n", t->line, t->text);
+    case T_MEMBER: {
+        /* split module.word */
+        char mod_name[256], w_name[256];
+        char *dot = strchr(t->text, '.');
+        if (!dot) break;
+        int mlen = (int)(dot - t->text);
+        memcpy(mod_name, t->text, mlen); mod_name[mlen] = '\0';
+        strcpy(w_name, dot + 1);
+
+        Module *m = find_module(mod_name);
+        if (!m) { fprintf(stderr, "line %d: unknown module: %s\n", t->line, mod_name); exit(1); }
+        Word *mw = find_word_in_module(m, w_name);
+        if (!mw) { fprintf(stderr, "line %d: '%s' has no word '%s'\n", t->line, mod_name, w_name); exit(1); }
+        exec_body(mw->body, mw->len);
         break;
+    }
     }
     return EX_OK;
 }
@@ -1150,6 +1263,133 @@ static int already_used(const char *path) {
     return 0;
 }
 
+static void dir_of(const char *path, char *out, int out_size) {
+    strncpy(out, path, out_size - 1);
+    out[out_size - 1] = '\0';
+    char *last = strrchr(out, '/');
+    if (last) *last = '\0';
+    else strcpy(out, ".");
+}
+
+static void resolve_path(const char *base, const char *rel, char *out, int out_size) {
+    if (rel[0] == '/') { snprintf(out, out_size, "%s", rel); return; }
+    snprintf(out, out_size, "%s/%s", base, rel);
+    char *p;
+    while ((p = strstr(out, "/./")) != NULL)
+        memmove(p, p + 2, strlen(p + 2) + 1);
+    while ((p = strstr(out, "/../")) != NULL) {
+        char *prev = p - 1;
+        while (prev > out && *prev != '/') prev--;
+        if (prev >= out) memmove(prev, p + 3, strlen(p + 3) + 1);
+        else break;
+    }
+}
+
+static char current_dir[512] = ".";
+
+/* Load a .zona file, parse @ word definitions into the current module.
+   Loose code at file toplevel is executed immediately. */
+static void load_file_into_module(const char *path, Module *m) {
+    char resolved[512];
+    resolve_path(current_dir, path, resolved, sizeof(resolved));
+    if (already_used(resolved)) return;
+
+    char *src = read_file(resolved);
+    if (!src) return;
+
+    if (used_count < 64) {
+        strncpy(used_files[used_count], resolved, 511);
+        used_files[used_count++][511] = '\0';
+    }
+
+    /* save/restore current_dir for the loaded file */
+    char saved_dir[512];
+    strncpy(saved_dir, current_dir, sizeof(saved_dir));
+    dir_of(resolved, current_dir, sizeof(current_dir));
+
+    Token toks[TOK_MAX];
+    int n = tokenize_all(src, toks, TOK_MAX);
+    free(src);
+
+    Module *prev_module = current_module;
+    current_module = m;
+
+    int i = 0;
+    while (i < n) {
+        if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0) {
+            int line = toks[i].line;
+            while (i < n && toks[i].line == line) i++;
+            continue;
+        }
+        if (toks[i].type == T_PRIM &&
+            (strcmp(toks[i].text, ":bind") == 0 || strcmp(toks[i].text, ":struct") == 0)) {
+            int line = toks[i].line;
+            while (i < n && toks[i].line == line) i++;
+            continue;
+        }
+        if (toks[i].type == T_SYM && toks[i].text[0] == '@') {
+            i++;
+            if (i >= n || toks[i].type != T_WORD) {
+                fprintf(stderr, "line %d: @ must be followed by a word name\n", toks[i-1].line);
+                exit(1);
+            }
+            if (dict_count >= DICT_MAX) { fprintf(stderr, "dictionary full\n"); exit(1); }
+
+            int slot = dict_count;
+            for (int j = 0; j < dict_count; j++)
+                if (strcmp(dict[j].name, toks[i].text) == 0) { slot = j; break; }
+
+            Word *w = &dict[slot];
+            w->module = current_module;  /* assign to current module */
+            strncpy(w->name, toks[i].text, 255);
+            w->name[255] = '\0';
+            i++;
+
+            char sig_str[SIG_MAX * 2 + 2];
+            int si = 0;
+            while (i < n && toks[i].type == T_WORD && strlen(toks[i].text) == 1 &&
+                   strchr("ldp", toks[i].text[0])) {
+                sig_str[si++] = toks[i].text[0]; i++;
+            }
+            if (i < n && toks[i].type == T_SYM && toks[i].text[0] == ':') {
+                sig_str[si++] = ':'; i++;
+            } else if (i < n && toks[i].type == T_PRIM &&
+                       strlen(toks[i].text) == 2 && toks[i].text[0] == ':' &&
+                       strchr("ldp", toks[i].text[1])) {
+                sig_str[si++] = ':'; sig_str[si++] = toks[i].text[1]; i++;
+            } else {
+                fprintf(stderr, "line %d: expected ':' in signature for '%s'\n", toks[i-1].line, w->name);
+                exit(1);
+            }
+            while (i < n && toks[i].type == T_WORD && strlen(toks[i].text) == 1 &&
+                   strchr("ldp", toks[i].text[0])) {
+                sig_str[si++] = toks[i].text[0]; i++;
+            }
+            sig_str[si] = '\0';
+            if (!parse_sig(sig_str, &w->sig, toks[i-1].line)) exit(1);
+
+            w->len = 0;
+            while (i < n) {
+                if (toks[i].type == T_SYM && toks[i].text[0] == ';') { i++; break; }
+                if (w->len >= WORD_BODY_MAX) { fprintf(stderr, "word body too long\n"); exit(1); }
+                w->body[w->len++] = toks[i++];
+            }
+            w->is_recursive = 0;
+            for (int j = 0; j < w->len; j++)
+                if (w->body[j].type == T_WORD && strcmp(w->body[j].text, w->name) == 0)
+                    w->is_recursive = 1;
+            if (slot == dict_count) dict_count++;
+            continue;
+        }
+        int start = i;
+        while (i < n && !(toks[i].type == T_SYM && toks[i].text[0] == '@')
+                      && !(toks[i].type == T_PRIM)) i++;
+        if (i == start) i++;
+    }
+    current_module = prev_module;
+    strncpy(current_dir, saved_dir, sizeof(current_dir));
+}
+
 static void run_file(const char *path);
 
 /* ============================================================
@@ -1159,9 +1399,37 @@ static void run_file(const char *path);
 static void exec_toplevel(Token *toks, int n) {
     int i = 0;
     while (i < n) {
-        /* skip :use (not implemented yet, but don't crash) */
+        /* :use name 'path'  or  :use 'path' (flat import) */
         if (toks[i].type == T_PRIM && strcmp(toks[i].text, ":use") == 0) {
             int line = toks[i].line;
+            i++;
+            if (i >= n || toks[i].line != line) { i++; continue; }
+
+            /* Named import: T_WORD followed by T_STR */
+            if (toks[i].type == T_WORD && i+1 < n && toks[i+1].line == line
+                && toks[i+1].type == T_STR) {
+                char *alias = toks[i].text;
+                char *path  = toks[i+1].text;
+                i += 2;
+
+                Module *m = find_module(alias);
+                if (!m) {
+                    if (module_count >= MODULE_MAX) {
+                        fprintf(stderr, "line %d: too many modules\n", line);
+                        return;
+                    }
+                    m = &modules[module_count++];
+                    strcpy(m->name, alias);
+                    m->file[0] = '\0';
+                }
+                load_file_into_module(path, m);
+            }
+            /* Flat import: just T_STR — load into global namespace */
+            else if (toks[i].type == T_STR) {
+                char *path = toks[i].text;
+                i++;
+                load_file_into_module(path, NULL);
+            }
             while (i < n && toks[i].line == line) i++;
             continue;
         }
@@ -1277,6 +1545,11 @@ static void exec_toplevel(Token *toks, int n) {
 }
 
 static void run_file(const char *path) {
+    char resolved[512];
+    if (path[0] == '/') strcpy(resolved, path);
+    else { getcwd(resolved, sizeof(resolved)); strcat(resolved, "/"); strcat(resolved, path); }
+    dir_of(resolved, current_dir, sizeof(current_dir));
+
     char *src = read_file(path);
     if (!src) return;
     Token toks[TOK_MAX];
