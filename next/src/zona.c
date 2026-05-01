@@ -1,8 +1,8 @@
 /*
- * Zona Next — 最小解释器（阶段 1）
+ * Zona Next — 解释器
  *
- * 验证栈效应声明 + 类型分离的核心价值。
- * 能运行 fib，捕获类型错误，验证栈效应。
+ * 完整实现：栈效应声明 + 类型分离 + 调试/内省原语 + REPL。
+ * 编译器的基础——所有语言特性先在解释器验证，再搬进 QBE 编译器。
  */
 
 #include <stdio.h>
@@ -46,7 +46,7 @@ typedef struct {
    Tokenizer
    ============================================================ */
 
-static const char *SYMS = "@;$?!~+-*/%^><=._'";
+static const char *SYMS = "@;$?!~&#+-*/%^><=._'";
 
 static int tokenize(const char *line, Token *toks, int max, int line_num) {
     int n = 0;
@@ -219,6 +219,34 @@ static void *pop_p(void) {
 }
 
 /* ============================================================
+   String pool — B2 static preallocation
+   ============================================================ */
+
+#define STR_POOL_MAX 512
+
+typedef struct {
+    int64_t len;
+    char    data[256];
+} StrEntry;
+
+static StrEntry str_pool[STR_POOL_MAX];
+static int     str_count = 0;
+
+/* Store a C string in the pool, return pointer to data portion.
+   Caller gets a p value: pointer to first char, len at ptr[-8]. */
+static void *store_string(const char *s) {
+    if (str_count >= STR_POOL_MAX) {
+        fprintf(stderr, "line %d: string pool full\n", cur_line);
+        exit(1);
+    }
+    int64_t len = (int64_t)strlen(s);
+    str_pool[str_count].len = len;
+    memcpy(str_pool[str_count].data, s, len);
+    str_pool[str_count].data[len] = '\0';
+    return str_pool[str_count++].data;
+}
+
+/* ============================================================
    Stack effect signature
    ============================================================ */
 
@@ -330,8 +358,7 @@ static int verify_token(Token *t, TypeStack *ts, const char *word_name, int *err
         break;
 
     case T_STR:
-        ts_push(ts, TY_P);  /* address */
-        ts_push(ts, TY_L);  /* length */
+        ts_push(ts, TY_P);  /* single pointer to {len, data} */
         break;
 
     case T_SYM: {
@@ -354,6 +381,28 @@ static int verify_token(Token *t, TypeStack *ts, const char *word_name, int *err
                 *error_line = t->line; return 0;
             }
             ts_push(ts, TY_L);
+        } else if (c == '&') {
+            /* memory read: p -- l  (8 bytes as int64) */
+            Type a = ts_pop(ts);
+            if (a != TY_P) {
+                fprintf(stderr, "line %d: & requires p type, got %s\n",
+                        t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
+            ts_push(ts, TY_L);
+        } else if (c == '#') {
+            /* memory write: l p -- */
+            Type b = ts_pop(ts), a = ts_pop(ts);
+            if (b != TY_P) {
+                fprintf(stderr, "line %d: # requires p as second arg, got %s\n",
+                        t->line, type_name(b));
+                *error_line = t->line; return 0;
+            }
+            if (a != TY_L && a != TY_D) {
+                fprintf(stderr, "line %d: # requires l or d value, got %s\n",
+                        t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
         } else if (c == '?') {
             /* conditional — handled in exec_body, not here */
             /* For verification, we need to check both branches.
@@ -396,6 +445,60 @@ static int verify_token(Token *t, TypeStack *ts, const char *word_name, int *err
                 fprintf(stderr, "line %d: :emit requires l type, got %s\n", t->line, type_name(a));
                 *error_line = t->line; return 0;
             }
+        } else if (strcmp(t->text, ":type") == 0) {
+            Type a = ts_pop(ts);
+            if (a != TY_P) {
+                fprintf(stderr, "line %d: :type requires p type, got %s\n", t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
+        } else if (strcmp(t->text, ":key") == 0) {
+            ts_push(ts, TY_L);
+        } else if (strcmp(t->text, ":alloc") == 0) {
+            Type a = ts_pop(ts);
+            if (a != TY_L) {
+                fprintf(stderr, "line %d: :alloc requires l type, got %s\n", t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
+            ts_push(ts, TY_P);
+        } else if (strcmp(t->text, ":free") == 0) {
+            Type a = ts_pop(ts);
+            if (a != TY_P) {
+                fprintf(stderr, "line %d: :free requires p type, got %s\n", t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
+        } else if (strcmp(t->text, ":stack") == 0) {
+            /* no stack effect — prints, doesn't consume */
+        } else if (strcmp(t->text, ":words") == 0) {
+            /* no stack effect — prints, doesn't consume */
+        } else if (strcmp(t->text, ":clear") == 0) {
+            /* clears stack — verification can't track this statically.
+               For safety, treat as consuming all and producing nothing.
+               In practice this is a REPL debugging tool. */
+            while (ts_len(ts) > 0) ts_pop(ts);
+        } else if (strcmp(t->text, ":time") == 0) {
+            ts_push(ts, TY_L);
+        } else if (strcmp(t->text, ":rand") == 0) {
+            Type a = ts_pop(ts);
+            if (a != TY_L) {
+                fprintf(stderr, "line %d: :rand requires l type, got %s\n", t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
+            ts_push(ts, TY_L);
+        } else if (strcmp(t->text, ":exit") == 0) {
+            Type a = ts_pop(ts);
+            if (a != TY_L) {
+                fprintf(stderr, "line %d: :exit requires l type, got %s\n", t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
+        } else if (strcmp(t->text, ":argc") == 0) {
+            ts_push(ts, TY_L);
+        } else if (strcmp(t->text, ":argv") == 0) {
+            Type a = ts_pop(ts);
+            if (a != TY_L) {
+                fprintf(stderr, "line %d: :argv requires l index, got %s\n", t->line, type_name(a));
+                *error_line = t->line; return 0;
+            }
+            ts_push(ts, TY_P);
         }
         break;
 
@@ -501,8 +604,8 @@ static int verify_word(Word *w) {
 
             if (ip >= w->len) break;
 
-            /* detect else branch: next token, then '!' token */
-            int has_else = (ip + 2 <= w->len &&
+            /* detect else branch: token after true-branch is '!' */
+            int has_else = (ip + 1 < w->len &&
                             w->body[ip + 1].type == T_SYM &&
                             w->body[ip + 1].text[0] == '!');
 
@@ -519,17 +622,16 @@ static int verify_word(Word *w) {
             TypeStack ts_true = ts;
 
             if (has_else) {
-                /* Verify false branch (token at ip+2, or empty if out of bounds) */
+                /* Verify false branch (token at ip+2, or empty if past end) */
                 ts = ts_save;
                 int false_uses_return = 0;
-                if (ip + 2 < w->len) {
-                    if (w->body[ip + 2].type == T_SYM && w->body[ip + 2].text[0] == '$') {
-                        false_uses_return = 1;
-                    } else {
-                        if (!verify_token(&w->body[ip + 2], &ts, w->name, &error_line)) return 0;
-                    }
+                if (ip + 2 < w->len &&
+                    w->body[ip + 2].type == T_SYM && w->body[ip + 2].text[0] == '$') {
+                    false_uses_return = 1;
+                } else if (ip + 2 < w->len) {
+                    if (!verify_token(&w->body[ip + 2], &ts, w->name, &error_line)) return 0;
                 }
-                /* else: empty false branch, ts stays as ts_save */
+                /* else: no false branch token, ts stays as ts_save */
                 TypeStack ts_false = ts;
 
                 /* Merge: if both branches return, no merge needed.
@@ -572,13 +674,18 @@ static int verify_word(Word *w) {
         }
 
         if (t->type == T_SYM && t->text[0] == '~') {
-            /* loop — stack type must match word entry (after consuming inputs) */
-            /* For now, just check that stack depth matches */
-            int expected = w->sig.n_in;  /* after consuming inputs, loop point */
-            if (ts_len(&ts) != expected) {
-                fprintf(stderr, "line %d: loop stack depth mismatch (need %d for re-entry, have %d)\n",
-                        t->line, expected, ts_len(&ts));
+            /* loop — stack must match word's declared input types */
+            if (ts_len(&ts) != w->sig.n_in) {
+                fprintf(stderr, "line %d: loop stack depth mismatch for '%s': need %d (input), have %d\n",
+                        t->line, w->name, w->sig.n_in, ts_len(&ts));
                 return 0;
+            }
+            for (int j = 0; j < w->sig.n_in; j++) {
+                if (ts.types[j] != w->sig.in[j]) {
+                    fprintf(stderr, "line %d: loop type mismatch at position %d for '%s': expected %s, got %s\n",
+                            t->line, j, w->name, type_name(w->sig.in[j]), type_name(ts.types[j]));
+                    return 0;
+                }
             }
             ip++;
             continue;
@@ -594,17 +701,25 @@ static int verify_word(Word *w) {
         ip++;
     }
 
-    /* Check final stack matches declared output */
-    if (ts_len(&ts) != w->sig.n_out) {
-        fprintf(stderr, "line %d: stack effect mismatch for '%s': declared %d output(s), got %d\n",
-                cur_line, w->name, w->sig.n_out, ts_len(&ts));
-        return 0;
-    }
-    for (int i = 0; i < w->sig.n_out; i++) {
-        if (ts.types[i] != w->sig.out[i]) {
-            fprintf(stderr, "line %d: output type mismatch at position %d for '%s': declared %s, got %s\n",
-                    cur_line, i, w->name, type_name(w->sig.out[i]), type_name(ts.types[i]));
+    /* Check final stack matches declared output.
+       Words with ~ (loop) exit via $, not by falling through to ;.
+       For those, skip output count check — $ handles the stack. */
+    int has_loop = 0;
+    for (int i = 0; i < w->len; i++)
+        if (w->body[i].type == T_SYM && w->body[i].text[0] == '~') { has_loop = 1; break; }
+
+    if (!has_loop) {
+        if (ts_len(&ts) != w->sig.n_out) {
+            fprintf(stderr, "line %d: stack effect mismatch for '%s': declared %d output(s), got %d\n",
+                    cur_line, w->name, w->sig.n_out, ts_len(&ts));
             return 0;
+        }
+        for (int i = 0; i < w->sig.n_out; i++) {
+            if (ts.types[i] != w->sig.out[i]) {
+                fprintf(stderr, "line %d: output type mismatch at position %d for '%s': declared %s, got %s\n",
+                        cur_line, i, w->name, type_name(w->sig.out[i]), type_name(ts.types[i]));
+                return 0;
+            }
         }
     }
 
@@ -644,6 +759,9 @@ static Type rtpop(void) {
 
 enum ExecResult { EX_OK, EX_RETURN, EX_LOOP };
 static void exec_body(Token *toks, int n);
+
+static int  prog_argc = 0;
+static char **prog_argv = NULL;
 
 static void exec_prim(const char *name) {
     if (strcmp(name, ":dup") == 0) {
@@ -695,6 +813,102 @@ static void exec_prim(const char *name) {
         rtpop();
         int64_t c = stack[--sp].l;
         putchar((int)c);
+        return;
+    }
+    if (strcmp(name, ":type") == 0) {
+        rtpop();
+        char *ptr = stack[--sp].p;
+        int64_t len = *(int64_t *)(ptr - 8);
+        for (int64_t i = 0; i < len; i++) putchar(ptr[i]);
+        return;
+    }
+    if (strcmp(name, ":key") == 0) {
+        int c = getchar();
+        stack[sp].l = (int64_t)c; sp++;
+        rtpush(TY_L);
+        return;
+    }
+    if (strcmp(name, ":alloc") == 0) {
+        rtpop();
+        int64_t n = stack[--sp].l;
+        void *p = calloc((size_t)n, 1);
+        if (!p) { fprintf(stderr, "line %d: alloc failed\n", cur_line); stack[sp].p = NULL; }
+        else     { stack[sp].p = p; }
+        sp++; rtpush(TY_P);
+        return;
+    }
+    if (strcmp(name, ":free") == 0) {
+        rtpop();
+        void *p = stack[--sp].p;
+        free(p);
+        return;
+    }
+    if (strcmp(name, ":stack") == 0) {
+        printf("<%d>", sp);
+        for (int i = 0; i < sp; i++) {
+            Type t = rt_type_stack[i];
+            putchar(' ');
+            if (t == TY_D) {
+                double v = stack[i].d;
+                if (v == (long)v) printf("%.0f", v);
+                else printf("%g", v);
+            } else if (t == TY_P) {
+                printf("%p", stack[i].p);
+            } else {
+                printf("%ld", (long)stack[i].l);
+            }
+            printf(":%s", type_name(t));
+        }
+        putchar('\n');
+        return;
+    }
+    if (strcmp(name, ":words") == 0) {
+        for (int i = 0; i < dict_count; i++) {
+            Word *w = &dict[i];
+            printf("%s (", w->name);
+            for (int j = 0; j < w->sig.n_in; j++)  putchar(w->sig.in[j]);
+            printf(":");
+            for (int j = 0; j < w->sig.n_out; j++) putchar(w->sig.out[j]);
+            printf(")\n");
+        }
+        return;
+    }
+    if (strcmp(name, ":clear") == 0) {
+        sp = 0; rt_sp = 0;
+        return;
+    }
+    if (strcmp(name, ":time") == 0) {
+        stack[sp].l = (int64_t)time(NULL); sp++;
+        rtpush(TY_L);
+        return;
+    }
+    if (strcmp(name, ":rand") == 0) {
+        rtpop();
+        int64_t max = stack[--sp].l;
+        stack[sp].l = (int64_t)(rand() % (int)max); sp++;
+        rtpush(TY_L);
+        return;
+    }
+    if (strcmp(name, ":exit") == 0) {
+        rtpop();
+        int64_t code = stack[--sp].l;
+        exit((int)code);
+    }
+    if (strcmp(name, ":argc") == 0) {
+        stack[sp].l = (int64_t)prog_argc; sp++;
+        rtpush(TY_L);
+        return;
+    }
+    if (strcmp(name, ":argv") == 0) {
+        rtpop();
+        int64_t idx = stack[--sp].l;
+        if (idx >= 0 && idx < prog_argc && prog_argv) {
+            push_p(store_string(prog_argv[idx]));
+            rtpush(TY_P);
+        } else {
+            fprintf(stderr, "line %d: argv index out of range: %ld\n", cur_line, (long)idx);
+            push_p(NULL); rtpush(TY_P);
+        }
         return;
     }
 
@@ -799,6 +1013,27 @@ static void exec_sym(char c) {
         rtpush(TY_L);
         break;
     }
+    case '&': {
+        /* memory read: p -- l */
+        rtpop();
+        void *ptr = stack[--sp].p;
+        stack[sp].l = *(int64_t *)ptr; sp++;
+        rtpush(TY_L);
+        break;
+    }
+    case '#': {
+        /* memory write: value p -- */
+        Type tb = rtpop(), ta = rtpop();
+        void *ptr = stack[--sp].p;
+        if (ta == TY_D) {
+            double v = stack[--sp].d;
+            *(double *)ptr = v;
+        } else {
+            int64_t v = stack[--sp].l;
+            *(int64_t *)ptr = v;
+        }
+        break;
+    }
     default: break;
     }
 }
@@ -811,8 +1046,8 @@ static enum ExecResult exec_one(Token *t) {
         sp++;
         break;
     case T_STR:
-        /* strings not yet implemented for stage 1 */
-        fprintf(stderr, "line %d: strings not yet implemented\n", t->line);
+        stack[sp].p = store_string(t->text);
+        rtpush(TY_P); sp++;
         break;
     case T_SYM:
         if (t->text[0] == '$') return EX_RETURN;
@@ -859,13 +1094,17 @@ static void exec_body(Token *toks, int n) {
             f->ip++;
             if (f->ip >= f->len) break;
 
-            int has_else = (f->ip + 2 <= f->len &&
+            int has_else = (f->ip + 1 < f->len &&
                             f->toks[f->ip + 1].type == T_SYM &&
                             f->toks[f->ip + 1].text[0] == '!');
 
-            Token *chosen = has_else
-                ? (cond ? &f->toks[f->ip] : &f->toks[f->ip + 2])
-                : (cond ? &f->toks[f->ip] : NULL);
+            Token *chosen;
+            if (has_else) {
+                chosen = cond ? &f->toks[f->ip] :
+                    (f->ip + 2 < f->len ? &f->toks[f->ip + 2] : NULL);
+            } else {
+                chosen = cond ? &f->toks[f->ip] : NULL;
+            }
 
             if (chosen) {
                 enum ExecResult r = exec_one(chosen);
@@ -1046,16 +1285,34 @@ static void run_file(const char *path) {
     exec_toplevel(toks, n);
 }
 
+static void repl(void) {
+    Token toks[TOK_MAX];
+    int line_num = 1;
+    char buf[4096];
+
+    printf("zona> ");
+    fflush(stdout);
+    while (fgets(buf, sizeof(buf), stdin)) {
+        int n = tokenize(buf, toks, TOK_MAX, line_num++);
+        exec_toplevel(toks, n);
+        printf("zona> ");
+        fflush(stdout);
+    }
+    printf("\n");
+}
+
 /* ============================================================
    Main
    ============================================================ */
 
 int main(int argc, char **argv) {
+    srand((unsigned)time(NULL));
     if (argc > 1) {
+        prog_argc = argc - 2;
+        prog_argv = argv + 2;
         run_file(argv[1]);
     } else {
-        fprintf(stderr, "Usage: zona <file.zona>\n");
-        return 1;
+        repl();
     }
     return 0;
 }
