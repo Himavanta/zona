@@ -1,0 +1,23 @@
+_ 整数算术
+3 5 + :print
+
+_ 浮点算术
+3.0 5.0 + :print
+
+_ 栈效应验证
+@ add1 l:l 1 + ;
+3 add1 :print
+
+_ 条件分支（单词元分支）
+@ neg d:d 0.0 :swap - ;
+@ abs d:d :dup 0.0 < ? neg ! ;
+-3.0 abs :print
+3.0 abs :print
+
+_ 递归 fib
+@ fib d:d :dup 2.0 < ? $ :dup 1.0 - fib :swap 2.0 - fib + ;
+1.0 fib :print
+2.0 fib :print
+5.0 fib :print
+10.0 fib :print
+35.0 fib :print
