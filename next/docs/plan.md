@@ -7,7 +7,7 @@
 Next 相对 V1 的语言变更，详见 `next/docs/spec.md`。核心变更：
 
 1. **栈效应声明（强制）** — `@ 名称 输入:输出 body ;`，`:` 做签名分隔符
-2. **数字类型分离** — `35` 整数(i)，`35.0` 浮点(d)，类型不匹配编译错误
+2. **数字类型分离** — `35` 整数(l)，`35.0` 浮点(d)，类型不匹配编译错误
 3. **指针真实地址** — `:alloc` `:free` 返回真实指针，`:peek` `:poke` 替代 `&` `#`
 4. **默认内联短词** — body ≤ 8 词元且非递归自动内联
 5. **`.` 仅做成员访问** — 打印用 `:print` 原语
@@ -23,6 +23,8 @@ Next 相对 V1 的语言变更，详见 `next/docs/spec.md`。核心变更：
 | 内存读 | `&` | `:peek` 原语 |
 | 内存写 | `#` | `:poke` 原语 |
 | `&` `#` | 占用 | 释放（预留局部变量） |
+| 类型标记 | `i`/`d`/`p` | 统一词汇表 `b`/`h`/`w`/`l`/`s`/`d`/`p`/`p*`，栈效应用 `l`/`d`/`p` 子集 |
+| FFI 类型 | C 类型名 | QBE 类型名 + `p*` 扩展 |
 
 ### 不做的事（现阶段）
 
@@ -78,10 +80,10 @@ _ 类型错误
 3 5.0 +               _ 编译错误：类型不匹配
 
 _ 栈效应验证
-@ add1 i:i 1 + ;
+@ add1 l:l 1 + ;
 3 add1 :print         _ 输出 4
 
-@ bad i:i :drop ;     _ 编译错误：声明产出1个，实际产出0个
+@ bad l:l :drop ;     _ 编译错误：声明产出1个，实际产出0个
 
 _ 空签名
 @ hello : 'Hello' :type 10 :emit ;
@@ -108,36 +110,36 @@ _ fib
 
    ```
    _ 栈操作
-   OP_PUSH_I    (1 + 8 bytes)   _ 压入整数
+   OP_PUSH_L    (1 + 8 bytes)   _ 压入长整数
    OP_PUSH_D    (1 + 8 bytes)   _ 压入浮点
-   OP_DUP_I     (1 byte)        _ 复制栈顶整数
-   OP_DUP_D     (1 byte)        _ 复制栈顶浮点
-   OP_DROP_I    (1 byte)
-   OP_DROP_D    (1 byte)
-   OP_SWAP_I    (1 byte)
-   OP_SWAP_D    (1 byte)
+   OP_PUSH_P    (1 + 8 bytes)   _ 压入指针
+   OP_DUP       (1 byte)        _ 复制栈顶（64位通用）
+   OP_DROP      (1 byte)        _ 丢弃栈顶（64位通用）
+   OP_SWAP_LL   (1 byte)        _ 交换两个长整数
+   OP_SWAP_DD   (1 byte)        _ 交换两个浮点
+   OP_SWAP_LD   (1 byte)        _ 交换长整数和浮点
 
    _ 算术
-   OP_ADD_I     (1 byte)        _ 整数加
+   OP_ADD_L     (1 byte)        _ 长整数加
    OP_ADD_D     (1 byte)        _ 浮点加
-   OP_SUB_I     (1 byte)
+   OP_SUB_L     (1 byte)
    OP_SUB_D     (1 byte)
-   OP_MUL_I     (1 byte)
+   OP_MUL_L     (1 byte)
    OP_MUL_D     (1 byte)
-   OP_DIV_I     (1 byte)
+   OP_DIV_L     (1 byte)
    OP_DIV_D     (1 byte)
-   OP_MOD_I     (1 byte)
+   OP_MOD_L     (1 byte)
 
-   _ 比较（返回整数）
-   OP_LT_I      (1 byte)
+   _ 比较（返回长整数）
+   OP_LT_L      (1 byte)
    OP_LT_D      (1 byte)
-   OP_GT_I      (1 byte)
+   OP_GT_L      (1 byte)
    OP_GT_D      (1 byte)
-   OP_EQ_I      (1 byte)
+   OP_EQ_L      (1 byte)
    OP_EQ_D      (1 byte)
 
    _ 控制流
-   OP_JZ        (1 + 4 bytes)   _ 条件跳转（整数 == 0 则跳）
+   OP_JZ        (1 + 4 bytes)   _ 条件跳转（长整数 == 0 则跳）
    OP_JMP       (1 + 4 bytes)   _ 无条件跳转
    OP_RET       (1 byte)
 
@@ -145,7 +147,7 @@ _ fib
    OP_CALL       (1 + 4 bytes)  _ 调用字（索引）
 
    _ 打印
-   OP_PRINT_I   (1 byte)
+   OP_PRINT_L   (1 byte)
    OP_PRINT_D   (1 byte)
    ```
 
@@ -330,6 +332,42 @@ next/                   _ Next 版本独立开发目录
 
 在写代码之前需要确定的设计问题。实现按阶段走，但语法设计应尽早定下来，避免解释器的数据结构白写。
 
+### 待决 0：统一类型词汇表 ✅ 已决定
+
+**决策**：使用一套类型词汇表，不同上下文使用不同子集。
+
+```
+完整词汇表：b  h  w  l  s  d  p  p*
+大小：      1  2  4  8  4  8  8  8 字节
+```
+
+- **栈效应声明**：只用 `l` `d` `p`（栈是 64 位槽）
+- **`:struct`**：用 `b` `h` `w` `l` `s` `d` `p`（精确内存布局）
+- **`:bind`**：用 `w` `l` `s` `d` `p` `p*` + `void`（FFI 边界精度 + 字符串指针特殊处理）
+
+`p*` 仅用于 `:bind` 中标注 `char*`，触发自动双向字符串转换。在栈效应中展开为 `pl`（地址+长度两个槽位）。
+
+类型词汇直接对应 QBE IL 类型：`b`↔`b`，`h`↔`h`，`w`↔`w`，`l`↔`l`，`s`↔`s`，`d`↔`d`，`p`↔`l`，`p*`↔`l`+字符串转换。无中间映射层。
+
+V1 使用 C 类型名（`int` `double` `char*` 等）做 `:bind`，V2 改为 QBE 类型名，统一整个类型体系。
+
+**Why:** V1 有两套类型词（栈效应用 `i`/`d`/`p`，FFI 用 C 类型名），还有 C→QBE 的中间映射。统一为 QBE 类型词汇后，一层直接对应编译后端，`l` 在任何上下文都是一个意思。
+
+**How to apply:** 所有文档和代码中使用统一类型词汇。栈效应不再使用 `i`，改用 `l`。`:bind` 和 `:struct` 不再使用 C 类型名，改用 QBE 类型名。
+
+### 待决 0.5：资源上限哲学 ✅ 已决定
+
+**决策**：资源上限是解释器的实现细节，不是语言的语义约束。
+
+- 解释器（阶段 1-3）：使用静态数组，上限合理即可，超出报错
+- 编译器（阶段 6+）：编译后的程序使用操作系统的资源上限（C 栈 8MB、malloc/free 管理堆、OS 文件句柄限制）
+
+语言规范（spec.md）不规定资源上限。V1 的 `docs/limits.md` 是解释器实现文档，不是语言规范。
+
+**Why:** Zona 的目标是全能语言，通过 FFI 链接 C 生态。解释器的静态数组限制不应成为语言的天花板。编译后程序应有和 C 程序同等的资源访问能力。
+
+**How to apply:** spec.md 不写资源上限。解释器实现时设置合理的默认值，超限时给出清晰的错误信息。编译器生成的代码直接使用 C 运行时资源。
+
 ### 待决 1：模块系统 ✅ 已决定
 
 **决策**：全部导出，不区分公开/私有，命名空间即封装。
@@ -388,19 +426,20 @@ next/                   _ Next 版本独立开发目录
 
 ### 待决 2：结构体语法 ✅ 已决定
 
-**决策**：`:struct` 顶层声明，独占一行，无结束符号，字段必须有名字和 C 类型名。
+**决策**：`:struct` 顶层声明，独占一行，无结束符号，字段必须有名字和类型标记。
 
 ```
-:struct Point x double y double
-:struct Color r char g char b char a char
+:struct Point x d y d
+:struct Color r b g b b b a b
+:struct Rect x s y s w s h s
 ```
 
 语法细节：
-- 格式：`:struct` + 名称 + 字段名/C类型对
+- 格式：`:struct` + 名称 + 字段名/类型对
 - 必须在顶层声明，不能在字定义内声明
 - 与 `:use` `:bind` 同级，属于编译期声明
-- 字段类型使用 C 类型名（`int` `long` `double` `float` `char` `void*` `char*`），与 `:bind` 保持一致
-- C 类型到 Zona 类型的映射：`char`/`int`/`long` → `i`，`float`/`double` → `d`，`void*`/`char*` → `p`
+- 字段类型使用统一类型词汇表中的 `b` `h` `w` `l` `s` `d` `p`，直接对应 QBE aggregate
+- 字段到栈效应的映射：`b`/`h`/`w`/`l`/`p` → `l`，`s`/`d` → `d`
 - 自动生成 `Point.new :p`（构造器）、`Point.free p:`（析构器）
 - 字段访问 `Point.x` 与模块成员访问统一为 `T_MEMBER` 单一 token
 - 自动生成字段读取字 `Point.x p:d`、`Point.y p:d`
