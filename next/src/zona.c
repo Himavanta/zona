@@ -1111,14 +1111,15 @@ static void exec_sym(char c) {
         break;
     }
     case '#': {
-        /* memory write: value p -- */
-        Type tb = rtpop(), ta = rtpop();
-        void *ptr = stack[--sp].p;
-        if (ta == TY_D) {
+        /* memory write: value p --  (value is on top, pointer below) */
+        Type tv = rtpop(), tp = rtpop();
+        if (tv == TY_D) {
             double v = stack[--sp].d;
+            void *ptr = stack[--sp].p;
             *(double *)ptr = v;
         } else {
             int64_t v = stack[--sp].l;
+            void *ptr = stack[--sp].p;
             *(int64_t *)ptr = v;
         }
         break;
