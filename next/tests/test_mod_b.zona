@@ -1,0 +1,5 @@
+_ 模块 B：乘除
+
+@ add l:l + ;
+@ mul l:l * ;
+@ div l:l / ;

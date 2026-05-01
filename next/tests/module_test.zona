@@ -1,12 +1,10 @@
-_ 模块系统测试
+_ 基础模块测试
 
-_ 1) 命名导入 + 成员访问
 :use math './test_math_mod.zona'
-3 5 math.add :print     _ 预期: 8
-3 5 math.mul :print     _ 预期: 15
+3 5 math.add .         _ 8
+3 5 math.mul .         _ 15
 
-_ 2) 别名
 @ myadd l:l math.add ;
-3 5 myadd :print        _ 预期: 8
+3 5 myadd .            _ 8
 
 _OK

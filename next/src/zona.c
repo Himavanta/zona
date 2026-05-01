@@ -443,6 +443,9 @@ static int verify_token(Token *t, TypeStack *ts, const char *word_name, int *err
             /* return/loop — handled in verify_body */
         } else if (c == '!') {
             /* else marker — handled in verify_body */
+        } else if (c == '.') {
+            /* print — pops one value, type doesn't matter */
+            ts_pop(ts);
         }
         break;
     }
@@ -468,9 +471,6 @@ static int verify_token(Token *t, TypeStack *ts, const char *word_name, int *err
             ts_push(ts, b);
             ts_push(ts, c);
             ts_push(ts, a);
-        } else if (strcmp(t->text, ":print") == 0) {
-            /* :print pops one value — type doesn't matter for printing */
-            ts_pop(ts);
         } else if (strcmp(t->text, ":emit") == 0) {
             Type a = ts_pop(ts);
             if (a != TY_L) {
@@ -869,18 +869,6 @@ static void exec_prim(const char *name) {
         rtpush(b); rtpush(c); rtpush(a);
         return;
     }
-    if (strcmp(name, ":print") == 0) {
-        Type t = rtpop();
-        if (t == TY_D) {
-            double v = stack[--sp].d;
-            if (v == (long)v) printf("%.0f\n", v);
-            else printf("%g\n", v);
-        } else {
-            int64_t v = stack[--sp].l;
-            printf("%ld\n", (long)v);
-        }
-        return;
-    }
     if (strcmp(name, ":emit") == 0) {
         rtpop();
         int64_t c = stack[--sp].l;
@@ -1132,6 +1120,19 @@ static void exec_sym(char c) {
         } else {
             int64_t v = stack[--sp].l;
             *(int64_t *)ptr = v;
+        }
+        break;
+    }
+    case '.': {
+        /* print — same as :print, type-aware output */
+        Type t = rtpop();
+        if (t == TY_D) {
+            double v = stack[--sp].d;
+            if (v == (long)v) printf("%.0f\n", v);
+            else printf("%g\n", v);
+        } else {
+            int64_t v = stack[--sp].l;
+            printf("%ld\n", (long)v);
         }
         break;
     }
