@@ -11,12 +11,16 @@ function activate(context) {
 
                 for (let i = 0; i < document.lineCount; i++) {
                     const line = document.lineAt(i).text;
-                    const re = /:use\s+'([^']+)'/g;
+
+                    // Match :use name 'path' — named import only
+                    const re = /:use\s+\w+\s+'([^']+)'/g;
                     let m;
                     while ((m = re.exec(line)) !== null) {
+                        // Find the opening quote position in the match
+                        const quoteStart = m[0].indexOf("'");
+                        const q0 = m.index + quoteStart;
+                        const q1 = q0 + m[1].length + 2;
                         const target = vscode.Uri.file(path.resolve(dir, m[1]));
-                        const q0 = m.index + ':use '.length;          // opening quote
-                        const q1 = q0 + m[1].length + 2;             // closing quote
                         const range = new vscode.Range(i, q0, i, q1);
                         links.push(new vscode.DocumentLink(range, target));
                     }
