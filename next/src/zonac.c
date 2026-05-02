@@ -365,7 +365,9 @@ static void emit_data_section(void) {
         fprintf(out, "\", b 0 }\n");
     }
     fprintf(out, "data $stack = { z 2048 }\n");
-    fprintf(out, "data $sp = { w 0 }\n\n");
+    fprintf(out, "data $sp = { w 0 }\n");
+    fprintf(out, "data $prog_argc = { w 0 }\n");
+    fprintf(out, "data $prog_argv = { l 0 }\n\n");
 }
 
 /* ============================================================
@@ -530,13 +532,22 @@ static int gen_token(Token *t) {
             vpush(mod, TY_L);
         } else if (strcmp(t->text, ":argc") == 0) {
             int r = newtmp();
-            fprintf(out, "    %%t%d =l extsw %%argc\n", r);
-            vpush(r, TY_L);
+            fprintf(out, "    %%t%d =w loadw $prog_argc\n", r);
+            int r2 = newtmp();
+            fprintf(out, "    %%t%d =l extsw %%t%d\n", r2, r);
+            vpush(r2, TY_L);
         } else if (strcmp(t->text, ":argv") == 0) {
-            /* argv: index l -- string p */
-            /* TODO: implement */
-            fprintf(stderr, "line %d: :argv not yet implemented\n", t->line);
-            exit(1);
+            /* index l -- ptr:l len:l  (p l on stack) */
+            Type ty; int idx = vpop(&ty);
+            int base = newtmp(), off = newtmp(), addr = newtmp(), sptr = newtmp();
+            fprintf(out, "    %%t%d =l loadl $prog_argv\n", base);
+            fprintf(out, "    %%t%d =l mul %%t%d, 8\n", off, idx);
+            fprintf(out, "    %%t%d =l add %%t%d, %%t%d\n", addr, base, off);
+            fprintf(out, "    %%t%d =l loadl %%t%d\n", sptr, addr);
+            vpush(sptr, TY_P);
+            int len = newtmp();
+            fprintf(out, "    %%t%d =l call $strlen(l %%t%d)\n", len, sptr);
+            vpush(len, TY_L);
         }
         break;
     case T_WORD: {
@@ -934,6 +945,9 @@ int main(int argc, char **argv) {
     /* Walk toks again and execute loose (non-@) code */
     int has_main = 0;
     fprintf(out, "export function w $main(w %%argc, l %%argv) {\n@start\n");
+    /* Save argc/argv to globals for :argc/:argv primitives */
+    fprintf(out, "    storew %%argc, $prog_argc\n");
+    fprintf(out, "    storel %%argv, $prog_argv\n");
     int ip = 0;
     int local_line = 1;
     while (ip < n) {
