@@ -1,0 +1,25 @@
+_ 标准库测试
+:use math '../std/math.zona'
+:use logic '../std/logic.zona'
+:use stack '../std/stack.zona'
+:use io '../std/io.zona'
+:use test '../std/test.zona'
+
+_ === math ===
+'neg' -5 math.neg 5 test.check
+'abs' -7 math.abs 7 test.check
+'sq' 9 math.sq 81 test.check
+'min' 3 7 math.min 3 test.check
+'max' 3 7 math.max 7 test.check
+
+_ === logic ===
+'not' 1 logic.not 0 test.check
+'not0' 0 logic.not 1 test.check
+'and' 1 1 logic.and 1 test.check
+'or' 0 0 logic.or 0 test.check
+
+_ === stack ===
+'nip' 1 2 3 stack.nip :drop 1 test.check    _ nip [1,2,3] → [1,3], drop 3 → 1
+'tuck' 1 2 stack.tuck :drop :drop 2 test.check  _ tuck [1,2] → [2,1,2], drop 2→[2,1], drop 1→[2]
+
+'done' :type 10 :emit

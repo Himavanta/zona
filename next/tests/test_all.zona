@@ -1,0 +1,129 @@
+_ ============================================
+_ Zona 综合测试
+_ ============================================
+:use test '../std/test.zona'
+:use math '../std/math.zona'
+:use logic '../std/logic.zona'
+:use stack '../std/stack.zona'
+
+_ ============================================
+_ 一、算术
+_ ============================================
+'add' 3 5 + 8 test.check
+'sub' 10 3 - 7 test.check
+'mul' 4 5 * 20 test.check
+'div' 42 6 / 7 test.check
+'mod' 10 3 % 1 test.check
+'pow' 2 10 ^ 1024 test.check
+
+_ 浮点
+'fadd' 3.0 5.0 + 8.0 test.check
+'fmul' 4.5 2.0 * 9.0 test.check
+'fpow' 4.0 0.5 ^ 2.0 test.check
+
+_ ============================================
+_ 二、比较
+_ ============================================
+'gt' 5 3 > 1 test.check
+'gt2' 3 5 > 0 test.check
+'lt' 3 5 < 1 test.check
+'lt2' 5 3 < 0 test.check
+'eq' 5 5 = 1 test.check
+'eq2' 5 6 = 0 test.check
+
+_ ============================================
+_ 三、栈操作
+_ ============================================
+'dup' 5 :dup + 10 test.check
+'drop' 1 2 :drop 1 test.check
+'swap' 1 2 :swap :drop 2 test.check
+'over' 3 4 :over :drop :drop 3 test.check
+'rot' 1 2 3 :rot :drop :drop 1 test.check
+
+_ ============================================
+_ 四、标准库
+_ ============================================
+'abs' -7 math.abs 7 test.check
+'sq' 9 math.sq 81 test.check
+'neg' 5 math.neg -5 test.check
+'not' 1 logic.not 0 test.check
+'and' 1 0 logic.and 0 test.check
+'or' 0 1 logic.or 1 test.check
+'nip' 1 2 3 stack.nip :drop 1 test.check
+'tuck' 1 2 stack.tuck :drop :drop 2 test.check
+
+_ ============================================
+_ 五、控制流 - 条件 ? ! $
+_ ============================================
+@ t1 ll:l :dup 0 = ? :swap :drop ! :swap :over % ;
+'cond-true' 12 0 t1 12 test.check
+'cond-false' 0 12 t1 0 test.check
+
+_ 条件 ? !
+@ pos l:l 0 > ;  _ 直接用比较，不需要 ? 分支
+'pos-true' 5 pos 1 test.check
+'pos-false' -3 pos 0 test.check
+'pos-zero' 0 pos 0 test.check
+
+_ ? 单分支：条件真执行词元，假则跳过
+@ neg l:l 0 :swap - ;
+@ negIfNeg l:l :dup 0 < ? neg ;
+'negIf-neg' -5 negIfNeg 5 test.check
+'negIf-pos' 3 negIfNeg 3 test.check
+'negIf-zero' 0 negIfNeg 0 test.check
+
+_ ? ! 双分支 (干净的栈: 0 > 只留条件值)
+@ isPos l:l 0 > ? 1 ! 0 ;
+'isPos-true' 5 isPos 1 test.check
+'isPos-false' -3 isPos 0 test.check
+'isPos-zero' 0 isPos 0 test.check
+
+_ ============================================
+_ 六、循环 ~
+_ ============================================
+@ decr l:l :dup 0 = ? $ 1 - ~ ;
+'decr-5' 5 decr 0 test.check
+'decr-0' 0 decr 0 test.check
+
+@ sumTo l:l :dup 0 = ? $ :dup 1 - sumTo + ;
+'sum-5' 5 sumTo 15 test.check
+'sum-1' 1 sumTo 1 test.check
+'sum-0' 0 sumTo 0 test.check
+
+_ ============================================
+_ 七、递归
+_ ============================================
+@ fact l:l :dup 1 = ? $ :dup 1 - fact * ;
+'fact-5' 5 fact 120 test.check
+'fact-1' 1 fact 1 test.check
+
+@ fib l:l :dup 2 < ? $ :dup 1 - fib :swap 2 - fib + ;
+'fib-0' 0 fib 0 test.check
+'fib-1' 1 fib 1 test.check
+'fib-7' 7 fib 13 test.check
+
+_ ============================================
+_ 八、内存
+_ ============================================
+'mem-&-#' 1 :allot :here 1 - 42 :over # :rot & 42 test.check
+'mem-alloc' 1 :alloc :dup 99 :over # :dup & :swap :free :swap :drop 99 test.check
+
+_ ============================================
+_ 九、字符串
+_ ============================================
+@ strLen 'hello' :swap :drop ;
+'strLen' strLen 5 test.check
+
+@ strEmpty '' :swap :drop ;
+'strEmpty' strEmpty 0 test.check
+
+_ ============================================
+_ 十、系统原语（仅测试不崩溃）
+_ ============================================
+@ time-ok :time 0 > ;
+'sys-time' time-ok 1 test.check
+
+@ rand-ok 100 :rand 0 >= ;
+'sys-rand' rand-ok 1 test.check
+
+_done_ :type 10 :emit
