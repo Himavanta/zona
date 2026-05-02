@@ -285,9 +285,6 @@ static char qt(Type t) { return t == TY_D ? 'd' : 'l'; }
 
 /* flush virtual stack to runtime stack — stores as d for type uniformity */
 static void vsync(void) {
-    fprintf(stderr, "DEBUG vsync vsp=%d", vsp);
-    for (int i = 0; i < vsp; i++) fprintf(stderr, " [%d]=%d(%c)", i, vstack[i], vtype[i]);
-    fprintf(stderr, "\n");
     for (int i = 0; i < vsp; i++) {
         int si = newtmp(), off = newtmp(), off2 = newtmp(), addr = newtmp(), si2 = newtmp();
         fprintf(out, "    %%t%d =w loadw $sp\n", si);
@@ -308,7 +305,6 @@ static void vsync(void) {
     vsp = 0;
 }
 
-static int debug_vsync_count = 0;
 /* Pop from runtime stack — typed version. Stack stores as d, convert for l. */
 int emit_pop_typed(Type ty) {
     int si = newtmp(), si2 = newtmp(), off = newtmp(), off2 = newtmp(), addr = newtmp(), v = newtmp();
@@ -665,6 +661,7 @@ static int gen_token(Token *t) {
 /* Generate code for a word body with control flow */
 static int gen_word(Word *w) {
     w->compiled = 1;
+    vsp = 0;  /* reset virtual stack */
     if (w->sig.n_out == 1)
         fprintf(out, "function %c $zona_%s(", qt(w->sig.out[0]), w->name);
     else
@@ -788,8 +785,17 @@ static int gen_word(Word *w) {
         if (t->type == T_SYM && t->text[0] == '~') {
             vsync();
             fprintf(out, "    jmp @Lstart\n");
-            ip++;
-            continue;
+            if (w->sig.n_out > 0) {
+                /* Generate function end with proper label */
+                int dlabel = newlbl();
+                fprintf(out, "@Ldead%d\n", dlabel);
+                Type ty; int v = vpop(&ty);
+                fprintf(out, "    ret %%t%d\n", v);
+            } else {
+                fprintf(out, "    ret\n");
+            }
+            fprintf(out, "}\n\n");
+            return 1;
         }
 
         gen_token(t);
