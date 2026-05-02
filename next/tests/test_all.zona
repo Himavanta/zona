@@ -111,19 +111,19 @@ _ ============================================
 _ ============================================
 _ 九、字符串
 _ ============================================
-@ strLen 'hello' :swap :drop ;
+@ strLen :l 'hello' :swap :drop ;   _ 返回字符串长度 l
 'strLen' strLen 5 test.check
 
-@ strEmpty '' :swap :drop ;
+@ strEmpty :l '' :swap :drop ;     _ 空字符串长度 = 0
 'strEmpty' strEmpty 0 test.check
 
 _ ============================================
 _ 十、系统原语（仅测试不崩溃）
 _ ============================================
-@ time-ok :time 0 > ;
-'sys-time' time-ok 1 test.check
+@ timeOk :l :time 0 > ;
+'sys-time' timeOk 1 test.check
 
-@ rand-ok 100 :rand 0 >= ;
-'sys-rand' rand-ok 1 test.check
+@ randOk :l 100 :rand 100 < ;
+'sys-rand' randOk 1 test.check
 
-_done_ :type 10 :emit
+'done' :type 10 :emit

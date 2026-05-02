@@ -1,0 +1,2 @@
+:use math '../std/math.zona'
+5 math.neg .

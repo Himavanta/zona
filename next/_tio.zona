@@ -1,2 +1,0 @@
-:use io './std/io.zona'
-10 io.nl

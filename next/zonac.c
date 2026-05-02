@@ -240,6 +240,16 @@ static Word *find_word(const char *name) {
     return NULL;
 }
 
+/* Debug: dump all words in a module */
+static void dump_module_words(Module *m) {
+    fprintf(stderr, "  Module '%s' words:", m ? m->name : "GLOBAL");
+    for (int i = 0; i < dict_count; i++) {
+        if (dict[i].module == m || (m && dict[i].module && strcmp(dict[i].module->name, m->name) == 0))
+            fprintf(stderr, " %s", dict[i].name);
+    }
+    fprintf(stderr, "\n");
+}
+
 static Word *find_word_in_module(Module *m, const char *name) {
     for (int i = dict_count-1; i >= 0; i--)
         if (strcmp(dict[i].name, name) == 0 && dict[i].module == m)
@@ -374,6 +384,9 @@ static void emit_data_section(void) {
    ============================================================ */
 
 static int cur_line;
+
+/* Current module context for token generation */
+static Module *current_module = NULL;
 
 /* Forward: generate one word from body tokens */
 static int gen_word(Word *w);
@@ -560,7 +573,11 @@ static int gen_token(Token *t) {
         }
         break;
     case T_WORD: {
-        Word *w = find_word(t->text);
+        Word *w = NULL;
+        if (current_module)
+            w = find_word_in_module(current_module, t->text);
+        if (!w)
+            w = find_word(t->text);
         if (!w) { fprintf(stderr, "line %d: unknown word '%s'\n", t->line, t->text); exit(1); }
         int args[16]; Type arg_t[16];
         for (int i = w->sig.n_in - 1; i >= 0; i--) {
@@ -662,6 +679,7 @@ static int gen_token(Token *t) {
 static int gen_word(Word *w) {
     w->compiled = 1;
     vsp = 0;  /* reset virtual stack */
+    current_module = w->module;
     if (w->sig.n_out == 1)
         fprintf(out, "function %c $zona_%s(", qt(w->sig.out[0]), w->name);
     else
