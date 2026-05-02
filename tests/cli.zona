@@ -1,4 +1,0 @@
-_ 命令行参数测试
-:argc .
-0 :argv :type 10 :emit
-1 :argv :type 10 :emit

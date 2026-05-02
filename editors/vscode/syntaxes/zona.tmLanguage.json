@@ -5,15 +5,19 @@
     { "include": "#comment" },
     { "include": "#string" },
     { "include": "#number" },
-    { "include": "#definition" },
+    { "include": "#word-name" },
+    { "include": "#definition-end" },
+    { "include": "#compile-directive" },
+    { "include": "#primitive" },
+    { "include": "#sig-separator" },
+    { "include": "#sig-types" },
     { "include": "#return" },
     { "include": "#conditional" },
     { "include": "#loop" },
-    { "include": "#use" },
-    { "include": "#primitive" },
+    { "include": "#member-access" },
+    { "include": "#print" },
     { "include": "#arithmetic" },
     { "include": "#comparison" },
-    { "include": "#print" },
     { "include": "#memory-op" }
   ],
   "repository": {
@@ -34,11 +38,32 @@
       "match": "(?<=\\s|^)-?[0-9]+(\\.[0-9]+)?(?=\\s|$)",
       "name": "constant.numeric.zona"
     },
-    "definition": {
-      "patterns": [
-        { "match": "@", "name": "keyword.control.define.zona" },
-        { "match": ";", "name": "keyword.control.end.zona" }
-      ]
+    "word-name": {
+      "match": "@\\s+([a-zA-Z][a-zA-Z0-9]*)",
+      "captures": {
+        "0": { "name": "keyword.control.define.zona" },
+        "1": { "name": "entity.name.function.zona" }
+      }
+    },
+    "definition-end": {
+      "match": ";",
+      "name": "keyword.control.end.zona"
+    },
+    "compile-directive": {
+      "match": ":(?:use|bind|struct)\\b",
+      "name": "keyword.control.directive.zona"
+    },
+    "primitive": {
+      "match": ":[a-z]{3,}",
+      "name": "support.function.builtin.zona"
+    },
+    "sig-separator": {
+      "match": "(?<=[ldp]):|(?<=\\s):(?=[ldp\\s])",
+      "name": "keyword.operator.sig-separator.zona"
+    },
+    "sig-types": {
+      "match": "(?<=^|\\s|:)[ldp]+(?=\\s|:|;|$|@)",
+      "name": "storage.type.zona"
     },
     "return": {
       "match": "\\$",
@@ -52,13 +77,13 @@
       "match": "~",
       "name": "keyword.control.loop.zona"
     },
-    "use": {
-      "match": ":use",
-      "name": "keyword.control.import.zona"
+    "member-access": {
+      "match": "\\.(?=[a-zA-Z])",
+      "name": "keyword.operator.member.zona"
     },
-    "primitive": {
-      "match": ":[a-z]+",
-      "name": "support.function.builtin.zona"
+    "print": {
+      "match": "\\.(?=\\s|$)",
+      "name": "keyword.operator.print.zona"
     },
     "arithmetic": {
       "match": "[+\\-*/%^]",
@@ -67,10 +92,6 @@
     "comparison": {
       "match": "[><=]",
       "name": "keyword.operator.comparison.zona"
-    },
-    "print": {
-      "match": "\\.",
-      "name": "keyword.operator.print.zona"
     },
     "memory-op": {
       "match": "[&#]",

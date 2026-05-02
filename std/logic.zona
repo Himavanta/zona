@@ -1,5 +1,6 @@
-_ 逻辑工具
+_ 逻辑标准库
+_ 使用: :use logic './std/logic.zona'
 
-@ not 0 = ;
-@ and * 0 > ;
-@ or + 0 > ;
+@ not l:l 0 = ;
+@ and ll:l * 0 > ;
+@ or ll:l + 0 > ;

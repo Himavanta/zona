@@ -1,4 +1,5 @@
-_ 栈工具
+_ 栈操作标准库
+_ 使用: :use stack './std/stack.zona'
 
-@ nip :swap :drop ;
-@ tuck :swap :over ;
+@ nip ll:l :swap :drop ;
+@ tuck ll:lll :swap :over ;

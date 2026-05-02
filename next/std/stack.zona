@@ -1,5 +1,0 @@
-_ 栈操作标准库
-_ 使用: :use stack './std/stack.zona'
-
-@ nip ll:l :swap :drop ;
-@ tuck ll:lll :swap :over ;

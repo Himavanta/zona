@@ -1,7 +1,9 @@
-_ 数学工具
+_ 数学标准库
+_ 使用: :use math './std/math.zona'
+_ 调用: math.neg, math.abs, ...
 
-@ neg 0 :swap - ;
-@ abs :dup 0 < ? neg ;
-@ sq :dup * ;
-@ min :over :over > ? :swap :drop ;
-@ max :over :over < ? :swap :drop ;
+@ neg l:l 0 :swap - ;
+@ abs l:l :dup 0 < ? neg ;
+@ sq l:l :dup * ;
+@ min ll:l :over :over > ? $ :drop ;
+@ max ll:l :over :over < ? $ :drop ;

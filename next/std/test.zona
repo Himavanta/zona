@@ -1,7 +1,0 @@
-_ 测试框架
-_ 使用: :use test './std/test.zona'
-_ 用法: 'name' actual expected test.check
-
-@ pass pl: 'PASS ' :type :type 10 :emit ;
-@ fail pl: 'FAIL ' :type :type 10 :emit ;
-@ check plll: = ? pass ! fail ;

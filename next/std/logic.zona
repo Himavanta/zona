@@ -1,6 +1,0 @@
-_ 逻辑标准库
-_ 使用: :use logic './std/logic.zona'
-
-@ not l:l 0 = ;
-@ and ll:l * 0 > ;
-@ or ll:l + 0 > ;
