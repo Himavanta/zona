@@ -675,6 +675,7 @@ static int gen_word(Word *w) {
         vpush(t, w->sig.in[i]);
     }
     fprintf(out, "@Lstart\n");
+    fprintf(out, "@Lbody\n");
 
     int ip = 0;
     while (ip < w->len) {
@@ -781,10 +782,15 @@ static int gen_word(Word *w) {
             return 1;
         }
 
-        /* ~ loop */
+        /* ~ loop — save current state and jump to body */
         if (t->type == T_SYM && t->text[0] == '~') {
             vsync();
-            fprintf(out, "    jmp @Lstart\n");
+            /* Reload n_in values from runtime stack back into vstack */
+            for (int i = w->sig.n_in - 1; i >= 0; i--) {
+                int v = emit_pop_typed(w->sig.in[i]);
+                vpush(v, w->sig.in[i]);
+            }
+            fprintf(out, "    jmp @Lbody\n");
             fprintf(out, "}\n\n");
             return 1;
         }
@@ -1024,6 +1030,7 @@ int main(int argc, char **argv) {
         if (!dict[i].compiled) gen_word(&dict[i]);
 
     /* Generate main function for loose code execution */
+    vsp = 0;  /* reset virtual stack for loose code */
     /* Walk toks again and execute loose (non-@) code */
     int has_main = 0;
     fprintf(out, "export function w $main(w %%argc, l %%argv) {\n@start\n");
