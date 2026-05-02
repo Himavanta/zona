@@ -286,6 +286,8 @@ static struct { int id; char text[256]; } strs[STR_MAX];
 static int str_count = 0;
 
 static int add_str(const char *text) {
+    for (int i = 0; i < str_count; i++)
+        if (strcmp(strs[i].text, text) == 0) return strs[i].id;
     int id = str_id++;
     strncpy(strs[str_count].text, text, 255);
     strs[str_count].id = id; str_count++;
@@ -299,6 +301,7 @@ static int add_str(const char *text) {
 static void emit_data_section(void) {
     fprintf(out, "data $fmt_int = { b \"%%ld\\n\", b 0 }\n");
     fprintf(out, "data $fmt_flt = { b \"%%g\\n\", b 0 }\n");
+    fprintf(out, "data $fmt_str = { b \"%%.*s\", b 0 }\n");
     for (int i = 0; i < str_count; i++) {
         fprintf(out, "data $str%d = { b \"", strs[i].id);
         for (const char *p = strs[i].text; *p; p++) {
@@ -339,9 +342,12 @@ static int gen_token(Token *t) {
     }
     case T_STR: {
         int id = add_str(t->text);
-        int v = newtmp();
-        fprintf(out, "    %%t%d =l copy $str%d\n", v, id);
-        vpush(v, TY_P);
+        int ptr = newtmp();
+        fprintf(out, "    %%t%d =l copy $str%d\n", ptr, id);
+        vpush(ptr, TY_P);
+        int len = newtmp();
+        fprintf(out, "    %%t%d =l copy %ld\n", len, (long)strlen(t->text));
+        vpush(len, TY_L);
         break;
     }
     case T_SYM: {
@@ -425,10 +431,10 @@ static int gen_token(Token *t) {
             vsync();
             fprintf(out, "    call $zona_print()\n");
         } else if (strcmp(t->text, ":type") == 0) {
-            Type ty; int ptr = vpop(&ty);
-            vsync();
-            /* ptr is C string — just puts */
-            fprintf(out, "    call $puts(l %%t%d)\n", ptr);
+            Type ty_l, ty_p;
+            int len = vpop(&ty_l), ptr = vpop(&ty_p);
+            /* Output string via printf %.*s */
+            fprintf(out, "    call $printf(l $fmt_str, ..., l %%t%d, l %%t%d)\n", len, ptr);
         } else if (strcmp(t->text, ":emit") == 0) {
             vsync(); int v = emit_pop_typed(TY_L);
             fprintf(out, "    call $putchar(w %%t%d)\n", v);
