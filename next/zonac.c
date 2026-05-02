@@ -669,12 +669,22 @@ static int gen_word(Word *w) {
     for (int i = 0; i < w->sig.n_in; i++)
         fprintf(out, "%c %%p%d%s", qt(w->sig.in[i]), i, i < w->sig.n_in-1 ? ", " : "");
     fprintf(out, ") {\n@Lentry\n");
+    /* Copy inputs to virtual stack */
     for (int i = 0; i < w->sig.n_in; i++) {
         int t = newtmp();
         fprintf(out, "    %%t%d =%c copy %%p%d\n", t, qt(w->sig.in[i]), i);
         vpush(t, w->sig.in[i]);
     }
-    fprintf(out, "@Lstart\n");
+    /* First entry: jump to body directly (vstack already has inputs) */
+    fprintf(out, "    jmp @Lbody\n");
+    /* @Lreload: reached from ~ loop — reload values from runtime into vstack */
+    fprintf(out, "@Lreload\n");
+    vsp = 0;
+    for (int i = w->sig.n_in - 1; i >= 0; i--) {
+        int v = emit_pop_typed(w->sig.in[i]);
+        vpush(v, w->sig.in[i]);
+    }
+    fprintf(out, "    jmp @Lbody\n");
     fprintf(out, "@Lbody\n");
 
     int ip = 0;
@@ -782,15 +792,10 @@ static int gen_word(Word *w) {
             return 1;
         }
 
-        /* ~ loop — save current state and jump to body */
+        /* ~ loop — save current state and restart body */
         if (t->type == T_SYM && t->text[0] == '~') {
             vsync();
-            /* Reload n_in values from runtime stack back into vstack */
-            for (int i = w->sig.n_in - 1; i >= 0; i--) {
-                int v = emit_pop_typed(w->sig.in[i]);
-                vpush(v, w->sig.in[i]);
-            }
-            fprintf(out, "    jmp @Lbody\n");
+            fprintf(out, "    jmp @Lreload\n");
             fprintf(out, "}\n\n");
             return 1;
         }
