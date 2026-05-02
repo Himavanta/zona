@@ -54,15 +54,15 @@
       "name": "keyword.control.directive.zona"
     },
     "primitive": {
-      "match": ":[a-z]+",
+      "match": ":[a-z]{3,}",
       "name": "support.function.builtin.zona"
     },
     "sig-separator": {
-      "match": "(?<=[ldp]):(?=[ldp]|\\s|$)",
+      "match": "(?<=[ldp]):|(?<=\\s):(?=[ldp\\s])",
       "name": "keyword.operator.sig-separator.zona"
     },
     "sig-types": {
-      "match": "(?<=^|\\s)[ldp]+(?=\\s|:|;|$|@)",
+      "match": "(?<=^|\\s|:)[ldp]+(?=\\s|:|;|$|@)",
       "name": "storage.type.zona"
     },
     "return": {
