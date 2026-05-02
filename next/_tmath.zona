@@ -1,0 +1,5 @@
+:use math './std/math.zona'
+3 5 math.min .
+3 5 math.max .
+-7 math.abs .
+9 math.sq .

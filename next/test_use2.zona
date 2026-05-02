@@ -1,0 +1,4 @@
+_ 测试 :use 多个模块
+:use test './std/test.zona'
+
+'hello' 'world' 0 test.check :drop :drop :drop :drop

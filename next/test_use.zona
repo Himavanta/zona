@@ -1,0 +1,4 @@
+_ 测试 :use
+:use math './std/math.zona'
+
+3 5 math.min .

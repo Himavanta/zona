@@ -1,0 +1,84 @@
+_ 边缘情况测试
+:use test '../std/test.zona'
+:use math '../std/math.zona'
+
+_ ============================================================
+_ 一、算术边缘
+_ ============================================================
+
+'arith-add0' 0 5 + 5 test.check
+'arith-sub-self' 7 7 - 0 test.check
+'arith-mul0' 0 99 * 0 test.check
+'arith-mul1' 1 42 * 42 test.check
+'arith-div1' 42 1 / 42 test.check
+'arith-pow0' 5 0 ^ 1 test.check
+'arith-pow1' 7 1 ^ 7 test.check
+'arith-mod-exact' 10 5 % 0 test.check
+'arith-mod-inexact' 10 3 % 1 test.check
+
+_ ============================================================
+_ 二、负数运算
+_ ============================================================
+
+'neg-add' -5 -3 + -8 test.check
+'neg-sub' -5 -3 - -2 test.check
+'neg-mul' -3 4 * -12 test.check
+'neg-mul2' -3 -4 * 12 test.check
+'neg-neg' 5 math.neg -5 test.check
+'neg-abs' -5 math.abs 5 test.check
+
+_ ============================================================
+_ 三、算术恒等式
+_ ============================================================
+
+'id-add0' 0 5 + 5 test.check
+'id-mul0' 99 0 * 0 test.check
+'id-mul1' 99 1 * 99 test.check
+'id-sub0' 7 7 - 0 test.check
+'id-div1' 42 1 / 42 test.check
+
+_ ============================================================
+_ 四、字定义边缘
+_ ============================================================
+
+_ 空字
+@ empty : ;
+'word-empty' 42 empty 42 test.check
+
+_ 重定义覆盖
+@ orig l:l 10 ;
+@ orig l:l 20 ;
+'word-redef' orig 0 20 test.check
+
+_ 零判断
+@ isZero l:l 0 = ;
+'is-zero-0' 0 isZero 1 test.check
+'is-zero-5' 5 isZero 0 test.check
+
+_ ============================================================
+_ 五、条件嵌套
+_ ============================================================
+
+@ inner-if l:l 1 ? 99 ! 0 ;
+'inner-if' inner-if 99 test.check
+@ inner-if0 l:l 0 ? 99 ! 42 ;
+'inner-if0' inner-if0 42 test.check
+
+_ ============================================================
+_ 六、复杂组合
+_ ============================================================
+
+_ 绝对值差
+@ absDiff ll:l - math.abs ;
+'abs-diff' 3 7 absDiff 4 test.check
+'abs-diff2' 10 3 absDiff 7 test.check
+
+_ ============================================================
+_ 七、原语组合
+_ ============================================================
+
+'stack-dup-add' 5 :dup + 10 test.check
+'stack-swap-drop' 1 2 :swap :drop 2 test.check
+'stack-over-rot' 1 2 3 :over :rot :drop :drop :drop 1 test.check
+
+_done-edge

@@ -1,0 +1,175 @@
+data $fmt_int = { b "%ld\n", b 0 }
+data $fmt_flt = { b "%g\n", b 0 }
+data $fmt_str = { b "%.*s", b 0 }
+data $str0 = { b "hello", b 0 }
+data $stack = { z 2048 }
+data $sp = { w 0 }
+data $prog_argc = { w 0 }
+data $prog_argv = { l 0 }
+
+function l $zona_pop_l() {
+@start
+    %t0 =w loadw $sp
+    %t1 =w sub %t0, 1
+    storew %t1, $sp
+    %t2 =l extsw %t1
+    %t3 =l mul %t2, 8
+    %t4 =l add $stack, %t3
+    %t5 =d loadd %t4
+    %t6 =l dtosi %t5
+    ret %t6
+}
+
+function d $zona_pop_d() {
+@start
+    %t7 =w loadw $sp
+    %t8 =w sub %t7, 1
+    storew %t8, $sp
+    %t9 =l extsw %t8
+    %t10 =l mul %t9, 8
+    %t11 =l add $stack, %t10
+    %t12 =d loadd %t11
+    ret %t12
+}
+
+function l $zona_cond(l %p0) {
+@Lentry
+    %t13 =l copy %p0
+@Lstart
+    %t14 =l copy 1
+    jnz %t14, @l0, @l1
+@l0
+    %t15 =l copy 42
+    jmp @l2
+@l1
+    %t16 =l copy 0
+    jmp @l2
+@l2
+    ret %t16
+}
+
+function l $zona_sum(l %p0) {
+@Lentry
+    %t17 =l copy %p0
+@Lstart
+    %t18 =l copy %t17
+    %t19 =l copy 0
+    %t20 =w ceql %t18, %t19
+    %t21 =l extsw %t20
+    jnz %t21, @l3, @l4
+@l3
+    ret %t17
+@l4
+@l5
+    %t22 =l copy %t17
+    %t23 =l copy 1
+    %t24 =l sub %t22, %t23
+    %t25 =l call $zona_sum(l %t24)
+    %t26 =l add %t17, %t25
+    ret %t26
+}
+
+function l $zona_fact(l %p0, l %p1) {
+@Lentry
+    %t27 =l copy %p0
+    %t28 =l copy %p1
+@Lstart
+    %t29 =l copy %t28
+    %t30 =l copy 1
+    %t31 =w ceql %t29, %t30
+    %t32 =l extsw %t31
+    jnz %t32, @l6, @l7
+@l6
+    ret %t28
+@l7
+@l8
+    %t33 =l copy %t28
+    %t34 =l copy 1
+    %t35 =l sub %t33, %t34
+    %t36 =l call $zona_fact(l %t28, l %t35)
+    %t37 =l mul %t27, %t36
+    ret %t37
+}
+
+function $zona_greet() {
+@Lentry
+@Lstart
+    %t38 =l copy $str0
+    %t39 =l copy 5
+    call $printf(l $fmt_str, ..., l %t39, l %t38)
+    ret
+}
+
+export function w $main(w %argc, l %argv) {
+@start
+    storew %argc, $prog_argc
+    storel %argv, $prog_argv
+    %t40 =l copy 3
+    %t41 =l copy 5
+    %t42 =l add %t40, %t41
+    %t43 =l call $printf(l $fmt_int, ..., l %t42)
+    %t44 =d copy d_3
+    %t45 =d copy d_5
+    %t46 =d add %t44, %t45
+    %t47 =l call $printf(l $fmt_flt, ..., d %t46)
+    %t48 =l copy 3
+    %t49 =l copy 5
+    %t50 =l mul %t48, %t49
+    %t51 =l call $printf(l $fmt_int, ..., l %t50)
+    %t52 =l copy 1
+    %t53 =l call $zona_cond(l %t52)
+    %t54 =l call $printf(l $fmt_int, ..., l %t53)
+    %t55 =l copy 0
+    %t56 =l call $zona_cond(l %t55)
+    %t57 =l call $printf(l $fmt_int, ..., l %t56)
+    %t58 =l copy 5
+    %t59 =l call $zona_sum(l %t58)
+    %t60 =l call $printf(l $fmt_int, ..., l %t59)
+    %t61 =l copy 0
+    %t62 =l call $zona_sum(l %t61)
+    %t63 =l call $printf(l $fmt_int, ..., l %t62)
+    %t64 =l copy 5
+    %t65 =l call $zona_fact(l %t13, l %t64)
+    %t66 =l call $printf(l $fmt_int, ..., l %t65)
+    %t67 =l copy 1
+    %t68 =w loadw $sp
+    %t69 =w sub %t68, 1
+    storew %t69, $sp
+    %t70 =l extsw %t69
+    %t71 =l mul %t70, 8
+    %t72 =l add $stack, %t71
+    %t73 =d loadd %t72
+    %t74 =l call $zona_fact(l %t73, l %t67)
+    %t75 =l call $printf(l $fmt_int, ..., l %t74)
+    %t76 =l copy 5
+    %t77 =l copy 5
+    %t78 =w ceql %t76, %t77
+    %t79 =l extsw %t78
+    %t80 =l call $printf(l $fmt_int, ..., l %t79)
+    %t81 =l copy 5
+    %t82 =l copy 3
+    %t83 =w csgtl %t81, %t82
+    %t84 =l extsw %t83
+    %t85 =l call $printf(l $fmt_int, ..., l %t84)
+    %t86 =l copy 3
+    %t87 =l copy 5
+    %t88 =w csltl %t86, %t87
+    %t89 =l extsw %t88
+    %t90 =l call $printf(l $fmt_int, ..., l %t89)
+    call $zona_greet()
+    %t91 =l copy 5
+    %t92 =l copy %t91
+    %t93 =l add %t91, %t92
+    %t94 =l call $printf(l $fmt_int, ..., l %t93)
+    %t95 =l copy 1
+    %t96 =l copy 2
+    %t97 =l call $printf(l $fmt_int, ..., l %t96)
+    %t98 =l copy 1
+    %t99 =l copy 2
+    %t100 =l call $printf(l $fmt_int, ..., l %t98)
+    %t101 =l copy 3
+    %t102 =l copy 4
+    %t103 =l copy %t101
+    %t104 =l call $printf(l $fmt_int, ..., l %t101)
+    ret 0
+}

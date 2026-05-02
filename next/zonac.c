@@ -1,7 +1,6 @@
 /*
- * Zona V2 — QBE 编译器
+ * Zona — QBE 编译器
  *
- * 基于 V1 zonac.c 的已验证 QBE 模式 + V2 的类型系统。
  * 栈效应签名 → 带类型的函数参数 → 寄存器传参。
  */
 
@@ -19,7 +18,7 @@
 typedef enum { TY_L = 'l', TY_D = 'd', TY_P = 'p' } Type;
 
 /* ============================================================
-   Token (V2: int/float distinguished via ival)
+   Token (int/float distinguished via ival)
    ============================================================ */
 
 enum TokenType { T_NUM, T_STR, T_SYM, T_PRIM, T_WORD, T_MEMBER };
@@ -286,6 +285,9 @@ static char qt(Type t) { return t == TY_D ? 'd' : 'l'; }
 
 /* flush virtual stack to runtime stack — stores as d for type uniformity */
 static void vsync(void) {
+    fprintf(stderr, "DEBUG vsync vsp=%d", vsp);
+    for (int i = 0; i < vsp; i++) fprintf(stderr, " [%d]=%d(%c)", i, vstack[i], vtype[i]);
+    fprintf(stderr, "\n");
     for (int i = 0; i < vsp; i++) {
         int si = newtmp(), off = newtmp(), off2 = newtmp(), addr = newtmp(), si2 = newtmp();
         fprintf(out, "    %%t%d =w loadw $sp\n", si);
@@ -306,6 +308,7 @@ static void vsync(void) {
     vsp = 0;
 }
 
+static int debug_vsync_count = 0;
 /* Pop from runtime stack — typed version. Stack stores as d, convert for l. */
 int emit_pop_typed(Type ty) {
     int si = newtmp(), si2 = newtmp(), off = newtmp(), off2 = newtmp(), addr = newtmp(), v = newtmp();
@@ -433,8 +436,13 @@ static int gen_token(Token *t) {
         } else if (c == '^') {
             Type tb, ta; int b = vpop(&tb), a = vpop(&ta);
             int pa = newtmp(), pb = newtmp(), pr = newtmp();
-            fprintf(out, "    %%t%d =d exts %%t%d\n", pa, a);
-            fprintf(out, "    %%t%d =d exts %%t%d\n", pb, b);
+            if (ta == TY_D) {
+                fprintf(out, "    %%t%d =d copy %%t%d\n", pa, a);
+                fprintf(out, "    %%t%d =d copy %%t%d\n", pb, b);
+            } else {
+                fprintf(out, "    %%t%d =d sltof %%t%d\n", pa, a);
+                fprintf(out, "    %%t%d =d sltof %%t%d\n", pb, b);
+            }
             fprintf(out, "    %%t%d =d call $pow(d %%t%d, d %%t%d)\n", pr, pa, pb);
             int r = newtmp();
             if (ta == TY_D) fprintf(out, "    %%t%d =d copy %%t%d\n", r, pr);
@@ -443,10 +451,15 @@ static int gen_token(Token *t) {
         } else if (c == '>' || c == '<' || c == '=') {
             Type tb, ta; int b = vpop(&tb), a = vpop(&ta);
             int cmp = newtmp(), r = newtmp();
-            char q = qt(ta);
-            if (c == '>') fprintf(out, "    %%t%d =w cgt%c %%t%d, %%t%d\n", cmp, q, a, b);
-            else if (c == '<') fprintf(out, "    %%t%d =w clt%c %%t%d, %%t%d\n", cmp, q, a, b);
-            else fprintf(out, "    %%t%d =w ceq%c %%t%d, %%t%d\n", cmp, q, a, b);
+            if (ta == TY_L) {
+                if (c == '>') fprintf(out, "    %%t%d =w csgtl %%t%d, %%t%d\n", cmp, a, b);
+                else if (c == '<') fprintf(out, "    %%t%d =w csltl %%t%d, %%t%d\n", cmp, a, b);
+                else fprintf(out, "    %%t%d =w ceql %%t%d, %%t%d\n", cmp, a, b);
+            } else {
+                if (c == '>') fprintf(out, "    %%t%d =w cgtd %%t%d, %%t%d\n", cmp, a, b);
+                else if (c == '<') fprintf(out, "    %%t%d =w cltd %%t%d, %%t%d\n", cmp, a, b);
+                else fprintf(out, "    %%t%d =w ceqd %%t%d, %%t%d\n", cmp, a, b);
+            }
             fprintf(out, "    %%t%d =l extsw %%t%d\n", r, cmp);
             vpush(r, TY_L);
         } else if (c == '&') {
@@ -553,11 +566,16 @@ static int gen_token(Token *t) {
     case T_WORD: {
         Word *w = find_word(t->text);
         if (!w) { fprintf(stderr, "line %d: unknown word '%s'\n", t->line, t->text); exit(1); }
-        if (!w->compiled) gen_word(w);
         int args[16]; Type arg_t[16];
-        for (int i = w->sig.n_in - 1; i >= 0; i--)
-            args[i] = vpop(&arg_t[i]);
-        if (w->sig.n_out > 0) {
+        for (int i = w->sig.n_in - 1; i >= 0; i--) {
+            if (vsp > 0) {
+                args[i] = vpop(&arg_t[i]);
+            } else {
+                args[i] = emit_pop_typed(w->sig.in[i]);
+                arg_t[i] = w->sig.in[i];
+            }
+        }
+        if (w->sig.n_out == 1) {
             int r = newtmp();
             fprintf(out, "    %%t%d =%c call $zona_%s(", r, qt(w->sig.out[0]), w->name);
             for (int i = 0; i < w->sig.n_in; i++)
@@ -569,6 +587,12 @@ static int gen_token(Token *t) {
             for (int i = 0; i < w->sig.n_in; i++)
                 fprintf(out, "%c %%t%d%s", qt(w->sig.in[i]), args[i], i < w->sig.n_in-1 ? ", " : "");
             fprintf(out, ")\n");
+            if (w->sig.n_out > 1) {
+                for (int i = 0; i < w->sig.n_out; i++) {
+                    int r = emit_pop_typed(w->sig.out[w->sig.n_out - 1 - i]);
+                    vpush(r, w->sig.out[w->sig.n_out - 1 - i]);
+                }
+            }
         }
         break;
     }
@@ -602,12 +626,17 @@ static int gen_token(Token *t) {
             fprintf(stderr, "line %d: '%s' has no word '%s'\n", t->line, cur_mod->name, seg);
             exit(1);
         }
-        if (!w->compiled) gen_word(w);
 
         int args[16]; Type arg_t[16];
-        for (int i = w->sig.n_in - 1; i >= 0; i--)
-            args[i] = vpop(&arg_t[i]);
-        if (w->sig.n_out > 0) {
+        for (int i = w->sig.n_in - 1; i >= 0; i--) {
+            if (vsp > 0) {
+                args[i] = vpop(&arg_t[i]);
+            } else {
+                args[i] = emit_pop_typed(w->sig.in[i]);
+                arg_t[i] = w->sig.in[i];
+            }
+        }
+        if (w->sig.n_out == 1) {
             int r = newtmp();
             fprintf(out, "    %%t%d =%c call $zona_%s(", r, qt(w->sig.out[0]), w->name);
             for (int i = 0; i < w->sig.n_in; i++)
@@ -619,6 +648,12 @@ static int gen_token(Token *t) {
             for (int i = 0; i < w->sig.n_in; i++)
                 fprintf(out, "%c %%t%d%s", qt(w->sig.in[i]), args[i], i < w->sig.n_in-1 ? ", " : "");
             fprintf(out, ")\n");
+            if (w->sig.n_out > 1) {
+                for (int i = 0; i < w->sig.n_out; i++) {
+                    int r = emit_pop_typed(w->sig.out[w->sig.n_out - 1 - i]);
+                    vpush(r, w->sig.out[w->sig.n_out - 1 - i]);
+                }
+            }
         }
         break;
     }
@@ -630,7 +665,7 @@ static int gen_token(Token *t) {
 /* Generate code for a word body with control flow */
 static int gen_word(Word *w) {
     w->compiled = 1;
-    if (w->sig.n_out > 0)
+    if (w->sig.n_out == 1)
         fprintf(out, "function %c $zona_%s(", qt(w->sig.out[0]), w->name);
     else
         fprintf(out, "function $zona_%s(", w->name);
@@ -658,54 +693,88 @@ static int gen_word(Word *w) {
 
             int has_else = (ip+1 < w->len && w->body[ip+1].type == T_SYM && w->body[ip+1].text[0] == '!');
 
-            /* Save virtual stack state before branches */
+            /* Save virtual stack state before branches (after condition popped) */
             int save_vsp = vsp;
             int save_vstack[VSTACK_MAX];
             Type save_vtype[VSTACK_MAX];
             memcpy(save_vstack, vstack, save_vsp * sizeof(int));
             memcpy(save_vtype, vtype, save_vsp * sizeof(Type));
 
+            /* Track branch output (must match between branches) */
+            int out_vsp = -1;
+            Type out_vtype[VSTACK_MAX];
+
             /* True branch */
             fprintf(out, "@l%d\n", lbl_true);
-            if (ip < w->len && w->body[ip].type == T_SYM && w->body[ip].text[0] == '$') {
-                if (w->sig.n_out > 0) {
-                    int v = (save_vsp > 0) ? save_vstack[save_vsp-1] : newtmp();
-                    fprintf(out, "    ret %%t%d\n", v);
+            vsp = save_vsp;
+            memcpy(vstack, save_vstack, save_vsp * sizeof(int));
+            memcpy(vtype, save_vtype, save_vsp * sizeof(Type));
+            if (ip < w->len) {
+                if (w->body[ip].type == T_SYM && w->body[ip].text[0] == '$') {
+                    if (w->sig.n_out > 1) vsync();
+                    if (w->sig.n_out == 1) {
+                        int v = (vsp > 0) ? vstack[vsp-1] : newtmp();
+                        fprintf(out, "    ret %%t%d\n", v);
+                    } else fprintf(out, "    ret\n");
                 } else {
-                    fprintf(out, "    ret\n");
+                    gen_token(&w->body[ip]);
+                    out_vsp = vsp;
+                    memcpy(out_vtype, vtype, vsp * sizeof(Type));
+                    vsync();
+                    fprintf(out, "    jmp @l%d\n", lbl_end);
                 }
-            } else if (ip < w->len) {
-                gen_token(&w->body[ip]);
-                fprintf(out, "    jmp @l%d\n", lbl_end);
             }
 
-            /* False branch — restore saved stack */
+            /* False branch */
             fprintf(out, "@l%d\n", lbl_false);
             vsp = save_vsp;
             memcpy(vstack, save_vstack, save_vsp * sizeof(int));
             memcpy(vtype, save_vtype, save_vsp * sizeof(Type));
             if (has_else && ip+2 < w->len) {
                 if (w->body[ip+2].type == T_SYM && w->body[ip+2].text[0] == '$') {
-                    if (w->sig.n_out > 0) {
+                    if (w->sig.n_out > 1) vsync();
+                    if (w->sig.n_out == 1) {
                         int v = (vsp > 0) ? vstack[vsp-1] : newtmp();
                         fprintf(out, "    ret %%t%d\n", v);
-                    } else {
-                        fprintf(out, "    ret\n");
-                    }
+                    } else fprintf(out, "    ret\n");
                 } else {
                     gen_token(&w->body[ip+2]);
+                    out_vsp = vsp;
+                    memcpy(out_vtype, vtype, vsp * sizeof(Type));
+                    vsync();
                     fprintf(out, "    jmp @l%d\n", lbl_end);
                 }
+            } else {
+                out_vsp = save_vsp;
+                memcpy(out_vtype, save_vtype, save_vsp * sizeof(Type));
+                vsync();
+                fprintf(out, "    jmp @l%d\n", lbl_end);
             }
 
+            /* Merge point — reload branch outputs from runtime stack */
             fprintf(out, "@l%d\n", lbl_end);
-            ip += has_else ? 3 : 1;
+            vsp = 0;
+            for (int i = 0; i < out_vsp; i++) {
+                int v = emit_pop_typed(out_vtype[out_vsp - 1 - i]);
+                vpush(v, out_vtype[out_vsp - 1 - i]);
+            }
+            /* Reverse vstack to restore original output order */
+            for (int i = 0; i < out_vsp / 2; i++) {
+                int tmp_t = vstack[i];
+                Type tmp_ty = vtype[i];
+                vstack[i] = vstack[out_vsp-1-i];
+                vtype[i] = vtype[out_vsp-1-i];
+                vstack[out_vsp-1-i] = tmp_t;
+                vtype[out_vsp-1-i] = tmp_ty;
+            }
+            ip += has_else ? 4 : 2;
             continue;
         }
 
         /* $ return */
         if (t->type == T_SYM && t->text[0] == '$') {
-            if (w->sig.n_out > 0) {
+            if (w->sig.n_out > 1) vsync();
+            if (w->sig.n_out == 1) {
                 Type ty; int v = vpop(&ty);
                 fprintf(out, "    ret %%t%d\n", v);
             } else {
@@ -728,7 +797,8 @@ static int gen_word(Word *w) {
     }
 
     /* End of function */
-    if (w->sig.n_out > 0) {
+    if (w->sig.n_out > 1) vsync();
+    if (w->sig.n_out == 1) {
         Type ty; int v = vpop(&ty);
         fprintf(out, "    ret %%t%d\n", v);
     } else {
@@ -876,6 +946,21 @@ static void first_pass_tokens(Token *toks, int n, Module *owner) {
             if (i < n && toks[i].type == T_SYM && toks[i].text[0] == ':') { sig_str[si++] = ':'; i++; }
             else if (i < n && toks[i].type == T_PRIM && strlen(toks[i].text)==2 && toks[i].text[0]==':' && strchr("ldp", toks[i].text[1]))
                 { sig_str[si++] = ':'; sig_str[si++] = toks[i].text[1]; i++; }
+            else if (i < n && toks[i].type == T_PRIM && toks[i].text[0]==':') {
+                /* Handle :ll, :ld, :pll etc — tokenizer combined : + types into one T_PRIM */
+                int all_types = 1;
+                for (const char *c = toks[i].text+1; *c; c++)
+                    if (!strchr("ldp", *c)) { all_types = 0; break; }
+                if (all_types) {
+                    sig_str[si++] = ':';
+                    for (const char *c = toks[i].text+1; *c; c++)
+                        sig_str[si++] = *c;
+                    i++;
+                } else {
+                    fprintf(stderr, "line %d: expected : in signature\n", toks[i-1].line);
+                    exit(1);
+                }
+            }
             else { fprintf(stderr, "line %d: expected : in signature\n", toks[i-1].line); exit(1); }
             while (i < n && toks[i].type == T_WORD) {
                 int ok = 1;

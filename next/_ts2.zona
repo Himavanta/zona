@@ -1,0 +1,2 @@
+:use stack './std/stack.zona'
+1 2 3 stack.nip .

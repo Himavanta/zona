@@ -1,0 +1,2 @@
+:use math './std/math.zona'
+3 5 math.min .

@@ -1,0 +1,6 @@
+_ IO 标准库
+_ 使用: :use io './std/io.zona'
+
+@ nl : 10 :emit ;
+@ space : 32 :emit ;
+@ tab : 9 :emit ;

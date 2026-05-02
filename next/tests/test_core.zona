@@ -1,0 +1,104 @@
+_ 核心测试
+:use test '../std/test.zona'
+:use math '../std/math.zona'
+:use logic '../std/logic.zona'
+
+_ ============================================================
+_ 一、算术
+_ ============================================================
+
+'add' 3 5 + 8 test.check
+'sub' 10 3 - 7 test.check
+'mul' 4 5 * 20 test.check
+'pow' 2 10 ^ 1024 test.check
+'mod' 10 3 % 1 test.check
+
+_ ============================================================
+_ 二、比较
+_ ============================================================
+
+'gt' 5 3 > 1 test.check
+'gt2' 3 5 > 0 test.check
+'eq' 5 5 = 1 test.check
+'lt' 3 5 < 1 test.check
+'lt2' 5 3 < 0 test.check
+
+_ ============================================================
+_ 三、标准库：数学
+_ ============================================================
+
+'abs-pos' 7 math.abs 7 test.check
+'abs-neg' -7 math.abs 7 test.check
+'abs-zero' 0 math.abs 0 test.check
+'sq' 9 math.sq 81 test.check
+'sq-neg' -9 math.sq 81 test.check
+'min1' 3 7 math.min 3 test.check
+'min2' 7 3 math.min 3 test.check
+'max1' 3 7 math.max 7 test.check
+'max2' 7 3 math.max 7 test.check
+'neg' 42 math.neg -42 test.check
+'neg2' -42 math.neg 42 test.check
+
+_ ============================================================
+_ 四、标准库：逻辑
+_ ============================================================
+
+'not-0' 0 logic.not 1 test.check
+'not-1' 1 logic.not 0 test.check
+'not-neg' -1 logic.not 0 test.check
+'and-00' 0 0 logic.and 0 test.check
+'and-01' 0 1 logic.and 0 test.check
+'and-10' 1 0 logic.and 0 test.check
+'and-11' 1 1 logic.and 1 test.check
+'or-00' 0 0 logic.or 0 test.check
+'or-01' 0 1 logic.or 1 test.check
+'or-10' 1 0 logic.or 1 test.check
+'or-11' 1 1 logic.or 1 test.check
+
+_ ============================================================
+_ 五、栈操作
+_ ============================================================
+
+'dup' 5 :dup + 10 test.check
+'swap' 1 2 :swap :drop 2 test.check
+'over' 3 4 :over :drop :drop 3 test.check
+'rot1' 1 2 3 :rot :rot :rot :drop :drop 1 test.check
+'drop' 1 2 3 :drop :drop 1 test.check
+
+_ ============================================================
+_ 六、控制流
+_ ============================================================
+
+'if-true' 1 ? 42 ! 0 42 test.check
+'if-false' 0 ? 42 ! 0 0 test.check
+'if-only' 1 ? 99 99 test.check
+
+_ 循环递减到0
+@ decrZero l:l :dup 0 = ? $ 1 - ~ ;
+'loop-decr-3' 3 decrZero 0 test.check
+'loop-decr-0' 0 decrZero 0 test.check
+
+_ 循环累加
+@ sumTo l:l :dup 0 = ? $ :dup :rot + :swap 1 - ~ ;
+@ sum l:l 0 :swap sumTo :drop ;
+'loop-sum-5' 5 sum 15 test.check
+'loop-sum-1' 1 sum 1 test.check
+
+_ ============================================================
+_ 七、递归
+_ ============================================================
+
+@ fact l:l :dup 1 = ? $ :dup 1 - fact * ;
+'fact-5' 5 fact 120 test.check
+'fact-1' 1 fact 1 test.check
+'fact-10' 10 fact 3628800 test.check
+
+_ ============================================================
+_ 八、组合运算
+_ ============================================================
+
+'combine1' 2 3 4 + * 14 test.check
+'combine2' 10 3 2 * - 4 test.check
+'combine3' 2 3 4 * * 24 test.check
+
+_done
