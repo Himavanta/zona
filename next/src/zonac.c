@@ -809,10 +809,6 @@ static void first_pass_tokens(Token *toks, int n, Module *owner) {
                     strcpy(m->name, alias); m->file[0] = '\0';
                 }
                 load_file_into_module(path, m);
-            } else if (toks[i].type == T_STR) {
-                /* Flat import */
-                load_file_into_module(toks[i].text, NULL);
-                i++;
             }
             while (i < n && toks[i].line == line) i++;
             continue;
@@ -841,14 +837,26 @@ static void first_pass_tokens(Token *toks, int n, Module *owner) {
             i++;
 
             char sig_str[64]; int si = 0;
-            while (i < n && toks[i].type == T_WORD && strlen(toks[i].text)==1 && strchr("ldp", toks[i].text[0]))
-                { sig_str[si++] = toks[i].text[0]; i++; }
+            while (i < n && toks[i].type == T_WORD) {
+                int ok = 1;
+                for (const char *c = toks[i].text; *c; c++)
+                    if (!strchr("ldp", *c)) { ok = 0; break; }
+                if (!ok) break;
+                strcpy(sig_str+si, toks[i].text); si += strlen(toks[i].text);
+                i++;
+            }
             if (i < n && toks[i].type == T_SYM && toks[i].text[0] == ':') { sig_str[si++] = ':'; i++; }
             else if (i < n && toks[i].type == T_PRIM && strlen(toks[i].text)==2 && toks[i].text[0]==':' && strchr("ldp", toks[i].text[1]))
                 { sig_str[si++] = ':'; sig_str[si++] = toks[i].text[1]; i++; }
             else { fprintf(stderr, "line %d: expected : in signature\n", toks[i-1].line); exit(1); }
-            while (i < n && toks[i].type == T_WORD && strlen(toks[i].text)==1 && strchr("ldp", toks[i].text[0]))
-                { sig_str[si++] = toks[i].text[0]; i++; }
+            while (i < n && toks[i].type == T_WORD) {
+                int ok = 1;
+                for (const char *c = toks[i].text; *c; c++)
+                    if (!strchr("ldp", *c)) { ok = 0; break; }
+                if (!ok) break;
+                strcpy(sig_str+si, toks[i].text); si += strlen(toks[i].text);
+                i++;
+            }
             sig_str[si] = '\0';
             if (!parse_sig(sig_str, &w->sig)) {
                 fprintf(stderr, "line %d: invalid signature '%s'\n", toks[i-1].line, sig_str);
