@@ -1,0 +1,3 @@
+@ decrZero l:l :dup 0 = ? $ 1 - ~ ;
+3 decrZero .
+0 decrZero .

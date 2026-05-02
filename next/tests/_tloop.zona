@@ -1,0 +1,7 @@
+:use test '../std/test.zona'
+
+@ decrZero l:l :dup 0 = ? $ 1 - ~ ;
+'loop' 3 decrZero 0 test.check
+
+@ sumTo l:l :dup 0 = ? $ :dup 1 - sumTo + ;
+'sum' 5 sumTo 15 test.check

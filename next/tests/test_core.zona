@@ -78,11 +78,11 @@ _ 循环递减到0
 'loop-decr-3' 3 decrZero 0 test.check
 'loop-decr-0' 0 decrZero 0 test.check
 
-_ 循环累加
-@ sumTo l:l :dup 0 = ? $ :dup :rot + :swap 1 - ~ ;
-@ sum l:l 0 :swap sumTo :drop ;
-'loop-sum-5' 5 sum 15 test.check
-'loop-sum-1' 1 sum 1 test.check
+_ 递归累加
+@ sumTo l:l :dup 0 = ? $ :dup 1 - sumTo + ;
+'loop-sum-5' 5 sumTo 15 test.check
+'loop-sum-1' 1 sumTo 1 test.check
+'loop-sum-0' 0 sumTo 0 test.check
 
 _ ============================================================
 _ 七、递归

@@ -1,0 +1,15 @@
+:use test '../std/test.zona'
+:use math '../std/math.zona'
+
+'add' 3 5 + 8 test.check
+'abs-neg' -7 math.abs 7 test.check
+'sq' 9 math.sq 81 test.check
+
+@ fact l:l :dup 1 = ? $ :dup 1 - fact * ;
+'fact-5' 5 fact 120 test.check
+
+@ decrZero l:l :dup 0 = ? $ 1 - ~ ;
+'loop' 3 decrZero 0 test.check
+
+@ sumTo l:l :dup 0 = ? $ :dup 1 - sumTo + ;
+'sum-5' 5 sumTo 15 test.check

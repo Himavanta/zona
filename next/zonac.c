@@ -292,7 +292,7 @@ static void vsync(void) {
         fprintf(out, "    %%t%d =l mul %%t%d, 8\n", off2, off);
         fprintf(out, "    %%t%d =l add $stack, %%t%d\n", addr, off2);
         int st = vstack[i];
-        if (vtype[i] == TY_L) {
+        if (vtype[i] != TY_D) {
             int cv = newtmp();
             fprintf(out, "    %%t%d =d sltof %%t%d\n", cv, st);
             fprintf(out, "    stored %%t%d, %%t%d\n", cv, addr);
@@ -315,7 +315,7 @@ int emit_pop_typed(Type ty) {
     fprintf(out, "    %%t%d =l mul %%t%d, 8\n", off2, off);
     fprintf(out, "    %%t%d =l add $stack, %%t%d\n", addr, off2);
     fprintf(out, "    %%t%d =d loadd %%t%d\n", v, addr);
-    if (ty == TY_L) {
+    if (ty != TY_D) {
         int cv = newtmp();
         fprintf(out, "    %%t%d =l dtosi %%t%d\n", cv, v);
         return cv;
@@ -764,7 +764,7 @@ static int gen_word(Word *w) {
                 vstack[out_vsp-1-i] = tmp_t;
                 vtype[out_vsp-1-i] = tmp_ty;
             }
-            ip += has_else ? 4 : 2;
+            ip += has_else ? 3 : 1;
             continue;
         }
 
@@ -785,15 +785,6 @@ static int gen_word(Word *w) {
         if (t->type == T_SYM && t->text[0] == '~') {
             vsync();
             fprintf(out, "    jmp @Lstart\n");
-            if (w->sig.n_out > 0) {
-                /* Generate function end with proper label */
-                int dlabel = newlbl();
-                fprintf(out, "@Ldead%d\n", dlabel);
-                Type ty; int v = vpop(&ty);
-                fprintf(out, "    ret %%t%d\n", v);
-            } else {
-                fprintf(out, "    ret\n");
-            }
             fprintf(out, "}\n\n");
             return 1;
         }
