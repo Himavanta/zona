@@ -1,3 +1,0 @@
-_ 模块 C：加倍
-
-@ double l:l :dup + ;

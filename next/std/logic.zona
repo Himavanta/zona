@@ -1,6 +1,0 @@
-_ 逻辑标准库
-
-@ not l:l 0 = ;
-@ and ll:l * 0 > ;
-@ or ll:l + 0 > ;
-@ xor ll:l :over :over and not * 0 > ;

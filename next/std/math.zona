@@ -1,7 +1,0 @@
-_ 数学标准库
-
-@ neg dd:d 0.0 :swap - ;
-@ abs dd:d :dup 0.0 < ? neg ! ;
-@ sq dd:d :dup * ;
-@ min ddd:d :over :over < ? :swap :drop ;
-@ max ddd:d :over :over > ? :swap :drop ;

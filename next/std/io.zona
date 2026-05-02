@@ -1,5 +1,0 @@
-_ IO 标准库
-
-@ nl : 10 :emit ;
-@ space : 32 :emit ;
-@ tab : 9 :emit ;

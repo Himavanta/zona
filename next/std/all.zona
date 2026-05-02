@@ -1,6 +1,0 @@
-_ 全部标准库
-
-:use math './math.zona'
-:use logic './logic.zona'
-:use io './io.zona'
-:use stack './stack.zona'

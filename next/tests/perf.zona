@@ -1,7 +1,0 @@
-_ 性能测试 — fib(35) 耗时
-
-@ fiba d:d :dup 2.0 < ? $ :dup 1.0 - fiba :swap 2.0 - fiba + ;
-
-:time 35.0 fiba :drop :time :swap - .
-
-_OK
