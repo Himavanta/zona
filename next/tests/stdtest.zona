@@ -1,0 +1,2 @@
+:use math '../std/math.zona'
+-3.0 math.abs .

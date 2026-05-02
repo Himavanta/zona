@@ -1,0 +1,5 @@
+_ 栈操作工具
+
+@ 2dup xy:xyxy :over :over ;
+@ 2drop xy: :drop :drop ;
+@ -rot xyz:yzx :rot :rot ;
