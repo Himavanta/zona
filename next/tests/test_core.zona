@@ -66,12 +66,16 @@ _ ============================================================
 'drop' 1 2 3 :drop :drop 1 test.check
 
 _ ============================================================
-_ 六、控制流
+_ 六、控制流（通过字定义测试 ? ! $）
 _ ============================================================
 
-'if-true' 1 ? 42 ! 0 42 test.check
-'if-false' 0 ? 42 ! 0 0 test.check
-'if-only' 1 ? 99 99 test.check
+_ 条件单分支
+@ ifTrue l:l 1 ? 42 ! 0 ;
+@ ifFalse l:l 0 ? 42 ! 0 ;
+@ ifOnly l:l 1 ? 99 ;
+'if-true' 0 ifTrue 42 test.check
+'if-false' 0 ifFalse 0 test.check
+'if-only' ifOnly 99 test.check
 
 _ 递归递减到0
 @ decrToZero l:l :dup 0 = ? $ :dup 1 - decrToZero ;

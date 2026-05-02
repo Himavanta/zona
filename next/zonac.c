@@ -293,6 +293,17 @@ static int  vpeek(Type *ty) {
 
 static char qt(Type t) { return t == TY_D ? 'd' : 'l'; }
 
+/* Generate the QBE function name for a word (module prefix if applicable) */
+static void fn_name(Word *w, char *buf, int buf_size) {
+    snprintf(buf, buf_size, "$zona");
+    if (w->module) {
+        strncat(buf, "_", buf_size - strlen(buf) - 1);
+        strncat(buf, w->module->name, buf_size - strlen(buf) - 1);
+    }
+    strncat(buf, "_", buf_size - strlen(buf) - 1);
+    strncat(buf, w->name, buf_size - strlen(buf) - 1);
+}
+
 /* flush virtual stack to runtime stack — stores as d for type uniformity */
 static void vsync(void) {
     for (int i = 0; i < vsp; i++) {
@@ -588,15 +599,17 @@ static int gen_token(Token *t) {
                 arg_t[i] = w->sig.in[i];
             }
         }
+        char callee[512];
+        fn_name(w, callee, sizeof(callee));
         if (w->sig.n_out == 1) {
             int r = newtmp();
-            fprintf(out, "    %%t%d =%c call $zona_%s(", r, qt(w->sig.out[0]), w->name);
+            fprintf(out, "    %%t%d =%c call %s(", r, qt(w->sig.out[0]), callee);
             for (int i = 0; i < w->sig.n_in; i++)
                 fprintf(out, "%c %%t%d%s", qt(w->sig.in[i]), args[i], i < w->sig.n_in-1 ? ", " : "");
             fprintf(out, ")\n");
             vpush(r, w->sig.out[0]);
         } else {
-            fprintf(out, "    call $zona_%s(", w->name);
+            fprintf(out, "    call %s(", callee);
             for (int i = 0; i < w->sig.n_in; i++)
                 fprintf(out, "%c %%t%d%s", qt(w->sig.in[i]), args[i], i < w->sig.n_in-1 ? ", " : "");
             fprintf(out, ")\n");
@@ -649,15 +662,17 @@ static int gen_token(Token *t) {
                 arg_t[i] = w->sig.in[i];
             }
         }
+        char callee[512];
+        fn_name(w, callee, sizeof(callee));
         if (w->sig.n_out == 1) {
             int r = newtmp();
-            fprintf(out, "    %%t%d =%c call $zona_%s(", r, qt(w->sig.out[0]), w->name);
+            fprintf(out, "    %%t%d =%c call %s(", r, qt(w->sig.out[0]), callee);
             for (int i = 0; i < w->sig.n_in; i++)
                 fprintf(out, "%c %%t%d%s", qt(w->sig.in[i]), args[i], i < w->sig.n_in-1 ? ", " : "");
             fprintf(out, ")\n");
             vpush(r, w->sig.out[0]);
         } else {
-            fprintf(out, "    call $zona_%s(", w->name);
+            fprintf(out, "    call %s(", callee);
             for (int i = 0; i < w->sig.n_in; i++)
                 fprintf(out, "%c %%t%d%s", qt(w->sig.in[i]), args[i], i < w->sig.n_in-1 ? ", " : "");
             fprintf(out, ")\n");
@@ -680,10 +695,12 @@ static int gen_word(Word *w) {
     w->compiled = 1;
     vsp = 0;  /* reset virtual stack */
     current_module = w->module;
+    char fname[512];
+    fn_name(w, fname, sizeof(fname));
     if (w->sig.n_out == 1)
-        fprintf(out, "function %c $zona_%s(", qt(w->sig.out[0]), w->name);
+        fprintf(out, "function %c %s(", qt(w->sig.out[0]), fname);
     else
-        fprintf(out, "function $zona_%s(", w->name);
+        fprintf(out, "function %s(", fname);
     for (int i = 0; i < w->sig.n_in; i++)
         fprintf(out, "%c %%p%d%s", qt(w->sig.in[i]), i, i < w->sig.n_in-1 ? ", " : "");
     fprintf(out, ") {\n@Lentry\n");
@@ -792,8 +809,10 @@ static int gen_word(Word *w) {
                     fprintf(out, "    jmp @l%d\n", lbl_end);
                 }
             } else {
-                out_vsp = save_vsp;
-                memcpy(out_vtype, save_vtype, save_vsp * sizeof(Type));
+                if (out_vsp < 0) {
+                    out_vsp = save_vsp;
+                    memcpy(out_vtype, save_vtype, save_vsp * sizeof(Type));
+                }
                 vsync();
                 fprintf(out, "    jmp @l%d\n", lbl_end);
             }
@@ -977,7 +996,8 @@ static void first_pass_tokens(Token *toks, int n, Module *owner) {
             }
             int slot = dict_count;
             for (int j = 0; j < dict_count; j++)
-                if (strcmp(dict[j].name, toks[i].text) == 0) { slot = j; break; }
+                if (strcmp(dict[j].name, toks[i].text) == 0 && dict[j].module == owner)
+                    { slot = j; break; }
             Word *w = &dict[slot];
             strncpy(w->name, toks[i].text, 255); w->name[255] = '\0';
             w->module = owner;  /* assign to module */
@@ -1103,6 +1123,92 @@ int main(int argc, char **argv) {
             if (ip < n && toks[ip].type == T_SYM && toks[ip].text[0] == ';') ip++;
             continue;
         }
+        /* ? conditional in loose code */
+        if (toks[ip].type == T_SYM && toks[ip].text[0] == '?') {
+            Type ty; int cond = vpop(&ty);
+            int lbl_true = newlbl(), lbl_false = newlbl(), lbl_end = newlbl();
+            fprintf(out, "    jnz %%t%d, @l%d, @l%d\n", cond, lbl_true, lbl_false);
+            ip++;
+
+            int has_else = (ip+1 < n && toks[ip+1].type == T_SYM && toks[ip+1].text[0] == '!');
+
+            int save_vsp = vsp;
+            int save_vstack[VSTACK_MAX];
+            Type save_vtype[VSTACK_MAX];
+            memcpy(save_vstack, vstack, save_vsp * sizeof(int));
+            memcpy(save_vtype, vtype, save_vsp * sizeof(Type));
+
+            int out_vsp = -1;
+            Type out_vtype[VSTACK_MAX];
+
+            /* True branch */
+            fprintf(out, "@l%d\n", lbl_true);
+            vsp = save_vsp;
+            memcpy(vstack, save_vstack, save_vsp * sizeof(int));
+            memcpy(vtype, save_vtype, save_vsp * sizeof(Type));
+            if (ip < n) {
+                gen_token(&toks[ip]);
+                out_vsp = vsp;
+                memcpy(out_vtype, vtype, vsp * sizeof(Type));
+                vsync();
+                fprintf(out, "    jmp @l%d\n", lbl_end);
+            }
+
+            /* False branch */
+            fprintf(out, "@l%d\n", lbl_false);
+            vsp = save_vsp;
+            memcpy(vstack, save_vstack, save_vsp * sizeof(int));
+            memcpy(vtype, save_vtype, save_vsp * sizeof(Type));
+            if (has_else && ip+2 < n) {
+                gen_token(&toks[ip+2]);
+                out_vsp = vsp;
+                memcpy(out_vtype, vtype, vsp * sizeof(Type));
+                vsync();
+                fprintf(out, "    jmp @l%d\n", lbl_end);
+            } else {
+                if (out_vsp < 0) {
+                    out_vsp = save_vsp;
+                    memcpy(out_vtype, save_vtype, save_vsp * sizeof(Type));
+                } else {
+                    /* True branch added outputs — push dummy zeros for false branch */
+                    for (int i = 0; i < out_vsp; i++) {
+                        int dummy = newtmp();
+                        if (out_vtype[i] == TY_D)
+                            fprintf(out, "    %%t%d =d copy d_0.0\n", dummy);
+                        else
+                            fprintf(out, "    %%t%d =l copy 0\n", dummy);
+                        vpush(dummy, out_vtype[i]);
+                    }
+                }
+                vsync();
+                fprintf(out, "    jmp @l%d\n", lbl_end);
+            }
+
+            /* Merge point */
+            fprintf(out, "@l%d\n", lbl_end);
+            vsp = 0;
+            for (int i = 0; i < out_vsp; i++) {
+                int v = emit_pop_typed(out_vtype[out_vsp - 1 - i]);
+                vpush(v, out_vtype[out_vsp - 1 - i]);
+            }
+            for (int i = 0; i < out_vsp / 2; i++) {
+                int tmp_t = vstack[i];
+                Type tmp_ty = vtype[i];
+                vstack[i] = vstack[out_vsp-1-i];
+                vtype[i] = vtype[out_vsp-1-i];
+                vstack[out_vsp-1-i] = tmp_t;
+                vtype[out_vsp-1-i] = tmp_ty;
+            }
+            ip += has_else ? 3 : 1;
+            has_main = 1;
+            continue;
+        }
+        /* ! alone — skip (only meaningful after ? true-branch) */
+        if (toks[ip].type == T_SYM && toks[ip].text[0] == '!') {
+            ip++;
+            continue;
+        }
+
         /* Loose code token */
         cur_line = toks[ip].line;
         gen_token(&toks[ip]);
