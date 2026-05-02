@@ -675,17 +675,38 @@ static int gen_word(Word *w) {
         fprintf(out, "    %%t%d =%c copy %%p%d\n", t, qt(w->sig.in[i]), i);
         vpush(t, w->sig.in[i]);
     }
-    /* First entry: jump to body directly (vstack already has inputs) */
-    fprintf(out, "    jmp @Lbody\n");
-    /* @Lreload: reached from ~ loop — reload values from runtime into vstack */
-    fprintf(out, "@Lreload\n");
-    vsp = 0;
-    for (int i = w->sig.n_in - 1; i >= 0; i--) {
-        int v = emit_pop_typed(w->sig.in[i]);
-        vpush(v, w->sig.in[i]);
+
+    /* Pre-scan for ~ loop */
+    int has_loop = 0;
+    for (int i = 0; i < w->len; i++)
+        if (w->body[i].type == T_SYM && w->body[i].text[0] == '~')
+            { has_loop = 1; break; }
+
+    if (has_loop) {
+        /*
+         * Loop strategy: @Lentry pushes initial values via vsync to runtime stack,
+         * then jumps to @Lreload. @Lreload pops values into vstack. @Lbody uses them.
+         * At ~, vsync pushes current values, jumps to @Lreload again.
+         * This avoids SSA issues because @Lbody's values always come from @Lreload.
+         */
+        vsync();  /* push initial inputs to runtime stack */
+        fprintf(out, "    jmp @Lreload\n");
+        fprintf(out, "@Lreload\n");
+        vsp = 0;
+        {
+            /* vsync pushes [v0, v1, ..., vn-1]; pop returns [vn-1, ..., v0] */
+            int popped[SIG_MAX];
+            for (int j = w->sig.n_in - 1; j >= 0; j--)
+                popped[j] = emit_pop_typed(w->sig.in[j]);
+            for (int j = 0; j < w->sig.n_in; j++)
+                vpush(popped[j], w->sig.in[j]);
+        }
+        fprintf(out, "    jmp @Lbody\n");
+        fprintf(out, "@Lbody\n");
+    } else {
+        fprintf(out, "    jmp @Lbody\n");
+        fprintf(out, "@Lbody\n");
     }
-    fprintf(out, "    jmp @Lbody\n");
-    fprintf(out, "@Lbody\n");
 
     int ip = 0;
     while (ip < w->len) {
@@ -792,9 +813,11 @@ static int gen_word(Word *w) {
             return 1;
         }
 
-        /* ~ loop — save current state and restart body */
+        /* ~ loop — save current state, reload and restart */
         if (t->type == T_SYM && t->text[0] == '~') {
-            vsync();
+            /* Keep exactly the loop state values (same count as inputs) */
+            if (vsp > w->sig.n_in) vsp = w->sig.n_in;
+            vsync();  /* push loop state to runtime stack */
             fprintf(out, "    jmp @Lreload\n");
             fprintf(out, "}\n\n");
             return 1;
