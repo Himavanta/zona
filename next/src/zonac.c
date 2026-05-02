@@ -405,8 +405,14 @@ static int gen_token(Token *t) {
             char q = qt(ta);
             fprintf(out, "    store%c %%t%d, %%t%d\n", q, a, b);
         } else if (c == '.') {
-            vsync();
-            fprintf(out, "    call $zona_print()\n");
+            Type ty; int v = vpop(&ty);
+            if (ty == TY_D) {
+                int fi = newtmp();
+                fprintf(out, "    %%t%d =l call $printf(l $fmt_flt, ..., d %%t%d)\n", fi, v);
+            } else {
+                int fi = newtmp();
+                fprintf(out, "    %%t%d =l call $printf(l $fmt_int, ..., l %%t%d)\n", fi, v);
+            }
         }
         break;
     }
@@ -428,31 +434,57 @@ static int gen_token(Token *t) {
             Type tc, tb, ta; int c = vpop(&tc), b = vpop(&tb), a = vpop(&ta);
             vpush(b, tb); vpush(c, tc); vpush(a, ta);
         } else if (strcmp(t->text, ":print") == 0) {
-            vsync();
-            fprintf(out, "    call $zona_print()\n");
+            Type ty; int v = vpop(&ty);
+            if (ty == TY_D) {
+                int fi = newtmp();
+                fprintf(out, "    %%t%d =l call $printf(l $fmt_flt, ..., d %%t%d)\n", fi, v);
+            } else {
+                int fi = newtmp();
+                fprintf(out, "    %%t%d =l call $printf(l $fmt_int, ..., l %%t%d)\n", fi, v);
+            }
         } else if (strcmp(t->text, ":type") == 0) {
             Type ty_l, ty_p;
             int len = vpop(&ty_l), ptr = vpop(&ty_p);
             /* Output string via printf %.*s */
             fprintf(out, "    call $printf(l $fmt_str, ..., l %%t%d, l %%t%d)\n", len, ptr);
         } else if (strcmp(t->text, ":emit") == 0) {
-            vsync(); int v = emit_pop_typed(TY_L);
+            Type ty; int v = vpop(&ty);
             fprintf(out, "    call $putchar(w %%t%d)\n", v);
         } else if (strcmp(t->text, ":alloc") == 0) {
-            vsync(); int n = emit_pop_typed(TY_L);
+            Type ty; int n = vpop(&ty);
             int r = newtmp();
             fprintf(out, "    %%t%d =l call $malloc(l %%t%d)\n", r, n);
             vpush(r, TY_P);
         } else if (strcmp(t->text, ":free") == 0) {
-            vsync(); int p = emit_pop_typed(TY_L);
+            Type ty; int p = vpop(&ty);
             fprintf(out, "    call $free(l %%t%d)\n", p);
         } else if (strcmp(t->text, ":time") == 0) {
             int r = newtmp();
             fprintf(out, "    %%t%d =l call $time(l 0)\n", r);
             vpush(r, TY_L);
         } else if (strcmp(t->text, ":exit") == 0) {
-            vsync(); int v = emit_pop_typed(TY_L);
+            Type ty; int v = vpop(&ty);
             fprintf(out, "    call $exit(w %%t%d)\n", v);
+        } else if (strcmp(t->text, ":key") == 0) {
+            int r = newtmp();
+            fprintf(out, "    %%t%d =l call $getchar()\n", r);
+            vpush(r, TY_L);
+        } else if (strcmp(t->text, ":rand") == 0) {
+            Type ty; int n = vpop(&ty);
+            int r = newtmp();
+            fprintf(out, "    %%t%d =l call $rand()\n", r);
+            int mod = newtmp();
+            fprintf(out, "    %%t%d =l rem %%t%d, %%t%d\n", mod, r, n);
+            vpush(mod, TY_L);
+        } else if (strcmp(t->text, ":argc") == 0) {
+            int r = newtmp();
+            fprintf(out, "    %%t%d =l extsw %%argc\n", r);
+            vpush(r, TY_L);
+        } else if (strcmp(t->text, ":argv") == 0) {
+            /* argv: index l -- string p */
+            /* TODO: implement */
+            fprintf(stderr, "line %d: :argv not yet implemented\n", t->line);
+            exit(1);
         }
         break;
     case T_WORD: {
@@ -506,24 +538,27 @@ static int gen_word(Word *w) {
 
         /* ? conditional */
         if (t->type == T_SYM && t->text[0] == '?') {
-            /* Pop condition — must be on runtime stack or virtual stack */
-            vsync();
-            int cond = emit_pop_typed(TY_L);
+            Type ty; int cond = vpop(&ty);
             int lbl_true = newlbl(), lbl_false = newlbl(), lbl_end = newlbl();
             fprintf(out, "    jnz %%t%d, @l%d, @l%d\n", cond, lbl_true, lbl_false);
             ip++;
 
             int has_else = (ip+1 < w->len && w->body[ip+1].type == T_SYM && w->body[ip+1].text[0] == '!');
 
+            /* Save virtual stack state before branches */
+            int save_vsp = vsp;
+            int save_vstack[VSTACK_MAX];
+            Type save_vtype[VSTACK_MAX];
+            memcpy(save_vstack, vstack, save_vsp * sizeof(int));
+            memcpy(save_vtype, vtype, save_vsp * sizeof(Type));
+
             /* True branch */
             fprintf(out, "@l%d\n", lbl_true);
             if (ip < w->len && w->body[ip].type == T_SYM && w->body[ip].text[0] == '$') {
-                /* Return from true branch */
                 if (w->sig.n_out > 0) {
-                    Type ty; int v = vpop(&ty);
+                    int v = (save_vsp > 0) ? save_vstack[save_vsp-1] : newtmp();
                     fprintf(out, "    ret %%t%d\n", v);
                 } else {
-                    vsync();
                     fprintf(out, "    ret\n");
                 }
             } else if (ip < w->len) {
@@ -531,14 +566,17 @@ static int gen_word(Word *w) {
                 fprintf(out, "    jmp @l%d\n", lbl_end);
             }
 
+            /* False branch — restore saved stack */
             fprintf(out, "@l%d\n", lbl_false);
+            vsp = save_vsp;
+            memcpy(vstack, save_vstack, save_vsp * sizeof(int));
+            memcpy(vtype, save_vtype, save_vsp * sizeof(Type));
             if (has_else && ip+2 < w->len) {
                 if (w->body[ip+2].type == T_SYM && w->body[ip+2].text[0] == '$') {
                     if (w->sig.n_out > 0) {
-                        Type ty; int v = vpop(&ty);
+                        int v = (vsp > 0) ? vstack[vsp-1] : newtmp();
                         fprintf(out, "    ret %%t%d\n", v);
                     } else {
-                        vsync();
                         fprintf(out, "    ret\n");
                     }
                 } else {
@@ -614,30 +652,6 @@ static void emit_runtime(void) {
     fprintf(out, "    %%t%d =l add $stack, %%t%d\n", addr_d, off2_d);
     fprintf(out, "    %%t%d =d loadd %%t%d\n", v_d, addr_d);
     fprintf(out, "    ret %%t%d\n}\n\n", v_d);
-
-    /* Print: pop d value and print (V1-style integer check) */
-    fprintf(out, "function $zona_print() {\n@start\n");
-    int p_si = newtmp(), p_si2 = newtmp(), p_off = newtmp(), p_off2 = newtmp(), p_addr = newtmp(), p_v = newtmp();
-    fprintf(out, "    %%t%d =w loadw $sp\n", p_si);
-    fprintf(out, "    %%t%d =w sub %%t%d, 1\n", p_si2, p_si);
-    fprintf(out, "    storew %%t%d, $sp\n", p_si2);
-    fprintf(out, "    %%t%d =l extsw %%t%d\n", p_off, p_si2);
-    fprintf(out, "    %%t%d =l mul %%t%d, 8\n", p_off2, p_off);
-    fprintf(out, "    %%t%d =l add $stack, %%t%d\n", p_addr, p_off2);
-    fprintf(out, "    %%t%d =d loadd %%t%d\n", p_v, p_addr);
-    int p_li = newtmp(), p_back = newtmp(), p_eq = newtmp();
-    fprintf(out, "    %%t%d =l dtosi %%t%d\n", p_li, p_v);
-    fprintf(out, "    %%t%d =d sltof %%t%d\n", p_back, p_li);
-    fprintf(out, "    %%t%d =w ceqd %%t%d, %%t%d\n", p_eq, p_v, p_back);
-    int p_l_int = newlbl(), p_l_flt = newlbl(), p_l_end = newlbl();
-    fprintf(out, "    jnz %%t%d, @l%d, @l%d\n", p_eq, p_l_int, p_l_flt);
-    fprintf(out, "@l%d\n", p_l_int);
-    fprintf(out, "    call $printf(l $fmt_int, ..., l %%t%d)\n", p_li);
-    fprintf(out, "    jmp @l%d\n", p_l_end);
-    fprintf(out, "@l%d\n", p_l_flt);
-    fprintf(out, "    call $printf(l $fmt_flt, ..., d %%t%d)\n", p_v);
-    fprintf(out, "@l%d\n", p_l_end);
-    fprintf(out, "    ret\n}\n\n");
 }
 
 /* ============================================================
