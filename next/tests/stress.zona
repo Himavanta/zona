@@ -17,10 +17,10 @@ _ === 批量定义 ===
 0 n10 .               _ 512
 
 _ === 循环 ===
-@ count100 l:l :dup 100 < ? ~ ;
+@ count100 l:l :dup 100 = ? $ 1 + ~ ;
 0 count100 :drop
 
-@ count1000 l:l :dup 1000 < ? ~ ;
+@ count1000 l:l :dup 1000 = ? $ 1 + ~ ;
 0 count1000 :drop
 
 _ === 栈恢复 ===

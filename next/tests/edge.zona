@@ -54,12 +54,8 @@ _ === 字符串 ===
 10 :emit
 
 _ === 内存 &/# ===
-100 :alloc :dup 42 # & .    _ 42
+100 :alloc :dup :dup 42 # & .    _ 42
 :free
-
-_ === 调试 ===
-:stack
-:clear
 :stack
 
 _OK edge
