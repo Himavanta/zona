@@ -9,8 +9,11 @@ _ --- 循环测试 ---
 
 _ --- 递归测试 ---
 @ fact l:l :dup 1 = ? $ :dup 1 - fact * ;
-@ gcd ll:l :dup 0 = ? :swap :drop $ :swap :over % gcd ;
-
 5 fact .          _ 应输出 120
+
+@ gcdRet ll:l :drop ;
+@ gcdStep ll:l :swap :over % gcd ;
+@ gcd ll:l :dup 0 = ? gcdRet ! gcdStep ;
+
 12 8 gcd .        _ 应输出 4
 17 13 gcd .       _ 应输出 1
