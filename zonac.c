@@ -812,6 +812,22 @@ static int gen_word(Word *w) {
                 if (out_vsp < 0) {
                     out_vsp = save_vsp;
                     memcpy(out_vtype, save_vtype, save_vsp * sizeof(Type));
+                } else {
+                    /* ? without ! must not net-consume stack */
+                    int delta = out_vsp - save_vsp;
+                    if (delta < 0) {
+                        fprintf(stderr, "line %d: ? without ! cannot net-consume stack (use ! for explicit else branch)\n", cur_line);
+                        exit(1);
+                    }
+                    /* Push dummy zeros to balance true branch's extra outputs */
+                    for (int i = save_vsp; i < out_vsp; i++) {
+                        int dummy = newtmp();
+                        if (out_vtype[i] == TY_D)
+                            fprintf(out, "    %%t%d =d copy d_0.0\n", dummy);
+                        else
+                            fprintf(out, "    %%t%d =l copy 0\n", dummy);
+                        vpush(dummy, out_vtype[i]);
+                    }
                 }
                 vsync();
                 fprintf(out, "    jmp @l%d\n", lbl_end);
@@ -1170,8 +1186,14 @@ int main(int argc, char **argv) {
                     out_vsp = save_vsp;
                     memcpy(out_vtype, save_vtype, save_vsp * sizeof(Type));
                 } else {
-                    /* True branch added outputs — push dummy zeros for false branch */
-                    for (int i = 0; i < out_vsp; i++) {
+                    /* ? without ! must not net-consume stack */
+                    int delta = out_vsp - save_vsp;
+                    if (delta < 0) {
+                        fprintf(stderr, "line %d: ? without ! cannot net-consume stack (use ! for explicit else branch)\n", cur_line);
+                        exit(1);
+                    }
+                    /* Push dummy zeros to balance true branch's extra outputs */
+                    for (int i = save_vsp; i < out_vsp; i++) {
                         int dummy = newtmp();
                         if (out_vtype[i] == TY_D)
                             fprintf(out, "    %%t%d =d copy d_0.0\n", dummy);
