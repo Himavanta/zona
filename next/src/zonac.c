@@ -562,18 +562,35 @@ static int gen_token(Token *t) {
         break;
     }
     case T_MEMBER: {
-        /* split module.word */
-        char *dot = strchr(t->text, '.');
-        if (!dot) break;
-        int mlen = (int)(dot - t->text);
-        char mod_name[256], w_name[256];
-        memcpy(mod_name, t->text, mlen); mod_name[mlen] = '\0';
-        strcpy(w_name, dot + 1);
+        /* Walk dotted path: a.b.c.word → traverse modules a→b→c, find word in c */
+        char path[256];
+        strncpy(path, t->text, sizeof(path)); path[255] = '\0';
 
-        Module *m = find_module(mod_name);
-        if (!m) { fprintf(stderr, "line %d: unknown module '%s'\n", t->line, mod_name); exit(1); }
-        Word *w = find_word_in_module(m, w_name);
-        if (!w) { fprintf(stderr, "line %d: '%s' has no word '%s'\n", t->line, mod_name, w_name); exit(1); }
+        /* Split into segments, find the word in the last module */
+        Module *cur_mod = NULL;
+        char *seg = path;
+        char *next_dot;
+        while ((next_dot = strchr(seg, '.')) != NULL) {
+            *next_dot = '\0';
+            Module *m = find_module(seg);
+            if (!m) {
+                fprintf(stderr, "line %d: unknown module '%s' in '%s'\n",
+                        t->line, seg, t->text);
+                exit(1);
+            }
+            cur_mod = m;
+            seg = next_dot + 1;
+        }
+        /* seg now points to the word name */
+        if (!cur_mod) {
+            fprintf(stderr, "line %d: invalid member access '%s'\n", t->line, t->text);
+            exit(1);
+        }
+        Word *w = find_word_in_module(cur_mod, seg);
+        if (!w) {
+            fprintf(stderr, "line %d: '%s' has no word '%s'\n", t->line, cur_mod->name, seg);
+            exit(1);
+        }
         if (!w->compiled) gen_word(w);
 
         int args[16]; Type arg_t[16];

@@ -1,5 +1,11 @@
 # Zona V2 语言重设计与编译器架构
 
+> ⚠️ **历史文档**：本文档记录 V2 设计初期的探索和讨论。部分方案已被否决或修改。
+> - 最终语言规范见 [`spec.md`](spec.md)
+> - 实际编译器实现见 [`compiler.md`](compiler.md)
+> - 废案汇总见 [`rejected.md`](rejected.md)
+> - 性能分析见 [`perf-analysis.md`](perf-analysis.md)
+
 > 本文档探讨从零重新设计 Zona 语言和编译器的方案，目标是在保持 Forth 极简精神的同时，从语义层面解决性能瓶颈，并支撑大型乃至超大型项目。
 
 ## 一、核心洞察

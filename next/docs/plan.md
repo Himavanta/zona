@@ -1,6 +1,6 @@
 # Zona V2 — 实施计划与状态
 
-> 设计决策见 `decisions.md`，语言规范见 `spec.md`。
+> 语言规范：[`spec.md`](spec.md) · 决策记录：[`decisions.md`](decisions.md) · 编译器内部：[`compiler.md`](compiler.md) · 废案：[`rejected.md`](rejected.md)
 
 ---
 
