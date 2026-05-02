@@ -443,7 +443,7 @@ Lbase:
 
 ## 五、与当前 Zona 的兼容性
 
-> ⚠️ 本节描述的独立源文件方案（`zona2.c`/`zonac2.c`）已被否决。V2 统一在 `next/src/zonac.c`。解释器已从项目中移除（见 rejected.md §1, §20）。
+> ⚠️ 本节描述的独立源文件方案（`zona2.c`/`zonac2.c`）已被否决。V2 统一在 `next/zonac.c`。解释器已从项目中移除（见 rejected.md §1, §20）。
 
 V2 是不兼容的重设计。主要破坏性变更：
 

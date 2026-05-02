@@ -167,7 +167,7 @@
 
 **提案**（redesign.md §五）：V2 用独立的 `zona2.c` / `zonac2.c` 与 V1 共存。
 
-**放弃原因**：V2 编译器统一在 `next/src/zonac.c`。V1 的 `src/zonac.c` 保持不变。两个编译器共享相同的 tokenizer 设计但代码独立。
+**放弃原因**：V2 编译器统一在 `next/zonac.c`。V1 的 `src/zonac.c` 保持不变。两个编译器共享相同的 tokenizer 设计但代码独立。
 
 ---
 
