@@ -20,7 +20,7 @@
 
 ### 已实现原语
 
-`:dup` `:drop` `:swap` `:over` `:rot` `.` `:print` `:type` `:emit` `:key` `:alloc` `:free` `:time` `:rand` `:exit` `:argc`
+`:dup` `:drop` `:swap` `:over` `:rot` `.` `:print` `:type` `:emit` `:key` `:alloc` `:free` `:time` `:rand` `:exit` `:argc` `:argv`
 
 ### 性能 (fib(35), Apple M 系列)
 
@@ -37,7 +37,6 @@
 | 阶段 | 内容 |
 |------|------|
 | FFI | `:bind` → QBE extern 调用 |
-| `:argv` | 命令行参数 |
 | 标准库 | math / logic / io .zona 文件 |
 
 ## 远期 🔮
